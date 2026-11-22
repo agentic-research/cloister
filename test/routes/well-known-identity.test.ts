@@ -1,25 +1,39 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 //
-// Tests for the identity discovery bridge (cloister-c9922f): WebFinger and
-// NIP-05, the two formats the `WellKnownIdentityBridgeRoute` publishes the
-// cluster's Interlace identity under. Cloister issues no tokens (ADR-0086), so
-// the retired token endpoint and the issuer documents that described it are
-// asserted absent.
+// Tests for the multi-format identity discovery bridge (cloister-c9922f).
+//
+// Exercises all five concrete paths the `WellKnownIdentityBridgeRoute`
+// handles plus an end-to-end JWT round-trip: cloister's `/oauth/token`
+// produces a JWS compact form whose signature, when fed back through
+// the JWK published at `/.well-known/jwks.json`, verifies under
+// Web Crypto's Ed25519 primitive. That assertion proves the bridge is
+// a working OIDC IdP from the consumer's point of view.
 
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
+  PATH_OIDC_DISCOVERY,
+  PATH_JWKS,
   PATH_WEBFINGER,
   PATH_NOSTR_NIP05,
+  PATH_OAUTH_TOKEN,
   WellKnownIdentityBridgeRoute,
 } from "../../src/routes/well-known-identity.js";
-import { instantiate } from "../../src/manifest/runtime.js";
-import { Router } from "../../src/router.js";
 import type { Env } from "../../src/types.js";
 import type { Gateway } from "../../src/manifest/types.js";
+import type { TokenGate } from "../../src/routes/well-known-identity.js";
+import {
+  ERR_CA_UNAVAILABLE,
+  ERR_SCOPE_DENIED,
+  type LeaseErrorCode,
+  type VerifiedLease,
+} from "../../src/routes/lease-middleware.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
+// Real Ed25519 keypair generated inside `beforeAll` per test that needs
+// it — we use Web Crypto end-to-end so the JWKS publishes the exact
+// bytes a verifier would consume.
 const FINGERPRINT  = "sha256:c9922f-test-fingerprint";
 const HOST         = "cloister.test";
 const BASE_URL     = `https://${HOST}`;
@@ -44,14 +58,28 @@ function makeManifest(overrides: Partial<Gateway> = {}): Gateway {
   };
 }
 
+type FetchResponder = (req: Request) => Promise<Response> | Response;
+
 // 32-byte raw Ed25519 public key, base64-standard. The shape that
 // notme's CABundle.keys uses (per cloister-c614ae).
 const RAW_PUBKEY_B64_32 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
-function envWith(extras: Record<string, string> = {}): Env {
+function envWith(
+  extras: Record<string, string> = {},
+  notme?: FetchResponder,
+  jwtSigner?: Env["NOTME_JWT"],
+): Env {
   return Object.assign({}, env, {
     INTERLACE_MASTER_PUBKEY: RAW_PUBKEY_B64_32,
     ...extras,
+    ...(notme ? { NOTME: { fetch: notme } as unknown as Env["NOTME"] } : {}),
+    // NOTME_JWT is UNBOUND unless a test asks for it. miniflare binds the name
+    // globally from wrangler.toml (a fetch stub, so workerd starts), and an RPC
+    // stub is a Proxy — `typeof x.issuerPublicKey === "function"` is true for
+    // it. So inheriting the ambient binding would silently put every test on
+    // the delegated path, where JWKS correctly 503s because the stub cannot
+    // answer. Tests of the pre-delegation path must be able to say "no signer".
+    NOTME_JWT: jwtSigner,
   }) as Env;
 }
 
@@ -59,24 +87,27 @@ function makeReq(path: string, init: RequestInit = {}): Request {
   return new Request(`${BASE_URL}${path}`, init);
 }
 
-// The paths cloister served while it issued tokens (ADR-0086).
-const RETIRED = [
-  ["POST", "/oauth/token"],
-  ["GET",  "/.well-known/openid-configuration"],
-  ["GET",  "/.well-known/jwks.json"],
-] as const;
-
 // ── match() — method + path discrimination ────────────────────────────────
 
 describe("WellKnownIdentityBridgeRoute.match", () => {
-  it("matches GET on each identity path", () => {
+  it("matches GET on each /.well-known/* identity path", () => {
     const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    expect(route.match(makeReq(PATH_OIDC_DISCOVERY))).toBe(true);
+    expect(route.match(makeReq(PATH_JWKS))).toBe(true);
     expect(route.match(makeReq(PATH_WEBFINGER))).toBe(true);
     expect(route.match(makeReq(PATH_NOSTR_NIP05))).toBe(true);
   });
 
-  it("rejects other methods (GET-only per RFC 7033 / NIP-05)", () => {
+  it("matches POST on /oauth/token only (not GET)", () => {
     const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    expect(route.match(makeReq(PATH_OAUTH_TOKEN, { method: "POST" }))).toBe(true);
+    expect(route.match(makeReq(PATH_OAUTH_TOKEN, { method: "GET" }))).toBe(false);
+  });
+
+  it("rejects POST on discovery paths (GET-only per RFC 8414 / 7033 / NIP-05)", () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    expect(route.match(makeReq(PATH_OIDC_DISCOVERY, { method: "POST" }))).toBe(false);
+    expect(route.match(makeReq(PATH_JWKS, { method: "POST" }))).toBe(false);
     expect(route.match(makeReq(PATH_WEBFINGER, { method: "POST" }))).toBe(false);
     expect(route.match(makeReq(PATH_NOSTR_NIP05, { method: "POST" }))).toBe(false);
   });
@@ -86,41 +117,15 @@ describe("WellKnownIdentityBridgeRoute.match", () => {
     expect(route.match(makeReq("/health"))).toBe(false);
     expect(route.match(makeReq("/.well-known/interlace/index.json"))).toBe(false);
     expect(route.match(makeReq("/mcp"))).toBe(false);
+    expect(route.match(makeReq("/.well-known/openid-config"))).toBe(false);  // typo
     expect(route.match(makeReq("/oauth/authorize"))).toBe(false);
-  });
-});
-
-// ── Cloister issues no tokens (ADR-0086) ─────────────────────────────────
-
-describe("the token endpoint and issuer documents are retired", () => {
-  it("the bridge matches none of them, on any method", () => {
-    const route = new WellKnownIdentityBridgeRoute(makeManifest());
-    for (const [, path] of RETIRED) {
-      for (const method of ["GET", "POST"]) {
-        expect(route.match(makeReq(path, { method })), `${method} ${path}`).toBe(false);
-      }
-    }
-  });
-
-  it("the gateway answers each with 404, whatever the request carries", async () => {
-    const router = new Router(instantiate(makeManifest({
-      routes: [{ path: "/.well-known/identity-bridge", kind: { wellKnownIdentityBridge: null } }],
-    } as Partial<Gateway>)));
-    for (const [method, path] of RETIRED) {
-      const init: RequestInit = method === "POST"
-        ? { method, body: "grant_type=client_credentials&scope=x&audience=y",
-            headers: { "content-type": "application/x-www-form-urlencoded" } }
-        : { method };
-      const res = await router.handle(makeReq(path, init), envWith());
-      expect(res.status, `${method} ${path}`).toBe(404);
-    }
   });
 });
 
 // ── Identity disable lever ────────────────────────────────────────────────
 
 describe("WellKnownIdentityBridgeRoute — disable", () => {
-  it("returns 404 on both paths when actor.fingerprint is empty", async () => {
+  it("returns 404 across all paths when actor.fingerprint is empty", async () => {
     const disabled = makeManifest({
       actor: {
         ...makeManifest().actor,
@@ -128,10 +133,117 @@ describe("WellKnownIdentityBridgeRoute — disable", () => {
       },
     });
     const route = new WellKnownIdentityBridgeRoute(disabled);
-    for (const p of [PATH_WEBFINGER, PATH_NOSTR_NIP05]) {
+    for (const p of [PATH_OIDC_DISCOVERY, PATH_JWKS, PATH_WEBFINGER, PATH_NOSTR_NIP05]) {
       const res = await route.handle(makeReq(p), envWith());
       expect(res.status).toBe(404);
     }
+    const post = await route.handle(
+      makeReq(PATH_OAUTH_TOKEN, { method: "POST", body: "grant_type=client_credentials",
+        headers: { "content-type": "application/x-www-form-urlencoded" } }),
+      envWith(),
+    );
+    expect(post.status).toBe(404);
+  });
+});
+
+// ── /.well-known/openid-configuration ─────────────────────────────────────
+
+describe("WellKnownIdentityBridgeRoute — OIDC discovery", () => {
+  it("returns valid OIDC discovery JSON with spec-required fields", async () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(makeReq(PATH_OIDC_DISCOVERY), envWith());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toMatch(/^application\/json/);
+    const body = await res.json() as Record<string, unknown>;
+    // RFC 8414 / OIDC Discovery 1.0 — issuer + jwks_uri + token_endpoint
+    // plus the alg/subject/response/grant arrays we declare support for.
+    expect(body.issuer).toBe(BASE_URL);
+    expect(body.jwks_uri).toBe(`${BASE_URL}${PATH_JWKS}`);
+    expect(body.token_endpoint).toBe(`${BASE_URL}${PATH_OAUTH_TOKEN}`);
+    expect(body.id_token_signing_alg_values_supported).toEqual(["EdDSA"]);
+    expect(body.subject_types_supported).toEqual(["public"]);
+    expect(body.response_types_supported).toEqual(["id_token"]);
+    expect(body.grant_types_supported).toEqual(["client_credentials"]);
+  });
+
+  it("jwks_uri resolves to a real route (round-trip)", async () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const disc = await route.handle(makeReq(PATH_OIDC_DISCOVERY), envWith());
+    const body = await disc.json() as { jwks_uri: string };
+    // Use the published URI to re-enter the route.
+    const url = new URL(body.jwks_uri);
+    const jwks = await route.handle(new Request(body.jwks_uri, { method: "GET" }), envWith());
+    expect(url.pathname).toBe(PATH_JWKS);
+    expect(jwks.status).toBe(200);
+  });
+});
+
+// ── /.well-known/jwks.json ────────────────────────────────────────────────
+
+describe("WellKnownIdentityBridgeRoute — JWKS", () => {
+  it("publishes the master pubkey in standard JWK format (OKP/Ed25519)", async () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(makeReq(PATH_JWKS), envWith());
+    expect(res.status).toBe(200);
+    const body = await res.json() as { keys: Array<Record<string, string>> };
+    expect(Array.isArray(body.keys)).toBe(true);
+    expect(body.keys.length).toBe(1);
+    const jwk = body.keys[0]!;
+    // RFC 8037 §2 — Ed25519 JWK MUST carry kty=OKP, crv=Ed25519, and
+    // base64url-no-pad encoded `x`.
+    expect(jwk.kty).toBe("OKP");
+    expect(jwk.crv).toBe("Ed25519");
+    expect(jwk.alg).toBe("EdDSA");
+    expect(jwk.use).toBe("sig");
+    expect(jwk.kid).toBe(FINGERPRINT);
+    // No base64-standard chars allowed in base64url.
+    expect(jwk.x).not.toMatch(/[+/=]/);
+    expect(jwk.x.length).toBeGreaterThan(0);
+  });
+
+  it("an off-the-shelf JOSE consumer can use the JWK to verify a signature", async () => {
+    // Generate a real Ed25519 keypair, export the public half as
+    // base64-standard (the binding format), serve via the route's JWKS,
+    // then verify a known signature using Web Crypto + the published JWK.
+    const kp = await crypto.subtle.generateKey(
+      { name: "Ed25519" } as unknown as AlgorithmIdentifier,
+      true,
+      ["sign", "verify"],
+    ) as CryptoKeyPair;
+    const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+    const pubB64Std = b64Encode(rawPub);
+
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(
+      makeReq(PATH_JWKS),
+      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }),
+    );
+    const body = await res.json() as { keys: Array<{ x: string; kty: string; crv: string }> };
+    const jwk = body.keys[0]!;
+
+    // Reconstruct the verifier key from the JWK's `x` (base64url) and
+    // assert it round-trips through Web Crypto's `importKey("jwk", ...)`.
+    const verifier = await crypto.subtle.importKey(
+      "jwk",
+      jwk as unknown as JsonWebKey,
+      { name: "Ed25519" } as unknown as AlgorithmIdentifier,
+      false,
+      ["verify"],
+    );
+    const message = new TextEncoder().encode("hello-cloister");
+    const sig = await crypto.subtle.sign("Ed25519", kp.privateKey, message);
+    const ok = await crypto.subtle.verify("Ed25519", verifier, sig, message);
+    expect(ok).toBe(true);
+  });
+
+  it("503s when the pubkey binding is unset", async () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    // Empty string for the binding — readEnvString returns undefined.
+    const res = await route.handle(
+      makeReq(PATH_JWKS),
+      envWith({ INTERLACE_MASTER_PUBKEY: "" }),
+    );
+    expect(res.status).toBe(503);
   });
 });
 
@@ -150,9 +262,10 @@ describe("WellKnownIdentityBridgeRoute — WebFinger", () => {
     expect(res.headers.get("content-type")).toMatch(/^application\/jrd\+json/);
     const body = await res.json() as { subject: string; links: Array<Record<string, string>> };
     expect(body.subject).toBe(resource);
-    // No OIDC issuer relation: cloister issues no tokens (ADR-0086), so a
-    // link telling a client to discover an issuer here would send it nowhere.
-    expect(body.links.find((l) => l.rel === "http://openid.net/specs/connect/1.0/issuer")).toBeUndefined();
+    // OIDC issuer relation present.
+    const issuerLink = body.links.find((l) => l.rel === "http://openid.net/specs/connect/1.0/issuer");
+    expect(issuerLink).toBeDefined();
+    expect(issuerLink!.href).toBe(BASE_URL);
     // Self-link present, correct type.
     const self = body.links.find((l) => l.rel === "self");
     expect(self).toBeDefined();
@@ -230,5 +343,324 @@ describe("WellKnownIdentityBridgeRoute — Nostr NIP-05", () => {
     const res = await route.handle(makeReq(PATH_NOSTR_NIP05), envWith());
     const body = await res.json() as { names: Record<string, string> };
     expect(Object.keys(body.names)).toEqual(["cluster"]);
+  });
+});
+
+// ── /oauth/token ──────────────────────────────────────────────────────────
+
+// The caller a passing gate verified. Distinct from FINGERPRINT (the
+// cluster's), so a token in the cluster's name cannot pass for one in the
+// caller's (ADR-0086).
+const CALLER_FP = "sha256:caller-lease-fingerprint";
+
+type GateAsk = Parameters<TokenGate>[2] & { denyWhenOff?: boolean };
+
+/** A gate that verifies every request as CALLER_FP, recording what it was asked. */
+function passingGate(asks: GateAsk[]): TokenGate {
+  return async (_env, _now, verify, opts = {}) => {
+    asks.push({ ...verify, denyWhenOff: opts.denyWhenOff });
+    const lease = { peerFp: CALLER_FP, scope: "read:*" } as unknown as VerifiedLease;
+    return { kind: "pass", lease };
+  };
+}
+
+/** A gate that refuses every request with `code`, recording what it was asked. */
+function refusingGate(code: LeaseErrorCode, asks: GateAsk[] = []): TokenGate {
+  return async (_env, _now, verify, opts = {}) => {
+    asks.push({ ...verify, denyWhenOff: opts.denyWhenOff });
+    return { kind: "reject", code, message: "refused" };
+  };
+}
+
+function tokenRequest(body: string): Request {
+  return makeReq(PATH_OAUTH_TOKEN, {
+    method:  "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+}
+
+
+describe("WellKnownIdentityBridgeRoute — /oauth/token", () => {
+  it("end-to-end: POST client_credentials → JWT → JWKS-verifiable signature", async () => {
+    // Build a real keypair so the JWKS publishes a key whose private
+    // half exists for the test. The stub for env.NOTME below signs
+    // with that private key — mimicking notme's /internal/sign-jwt
+    // contract end-to-end without needing the real notme worker.
+    const kp = await crypto.subtle.generateKey(
+      { name: "Ed25519" } as unknown as AlgorithmIdentifier,
+      true,
+      ["sign", "verify"],
+    ) as CryptoKeyPair;
+    const rawPub = new Uint8Array(await crypto.subtle.exportKey("raw", kp.publicKey));
+    const pubB64Std = b64Encode(rawPub);
+
+    // Contract: the NOTME_JWT RPC entrypoint (notme ADR-015 / PR #62), NOT
+    // `POST /internal/sign-jwt` — notme replaced that path with a 404 because
+    // an `/internal/` prefix is publicly routable and so is not an access
+    // control. The stub asserts the RPC shape, including that cloister passes
+    // the two segments SEPARATELY rather than the joined signing input, and
+    // returns raw signature BYTES rather than a base64url string.
+    const jwtSigner: Env["NOTME_JWT"] = {
+      async signJwt({ issuer, headerB64, payloadB64 }) {
+        expect(issuer).toBe(BASE_URL);
+        expect(headerB64).not.toContain(".");
+        expect(payloadB64).not.toContain(".");
+        const sig = await crypto.subtle.sign(
+          "Ed25519",
+          kp.privateKey,
+          new TextEncoder().encode(`${headerB64}.${payloadB64}`),
+        );
+        return { ok: true, signature: new Uint8Array(sig), kid: "delegated-test" };
+      },
+      async issuerPublicKey() {
+        return { ok: true, publicRawB64: pubB64Std, kid: "delegated-test" };
+      },
+    };
+
+    const asks: GateAsk[] = [];
+    const route = new WellKnownIdentityBridgeRoute(makeManifest(), passingGate(asks));
+    const form = "grant_type=client_credentials&scope=read%3A%2A&audience=https%3A%2F%2Frp.example";
+    const tokenRes = await route.handle(
+      tokenRequest(form),
+      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }, undefined, jwtSigner),
+    );
+    expect(tokenRes.status).toBe(200);
+    // The gate checked the caller's lease for exactly the scope the token
+    // carries, over the exact bytes sent, and an off gate would have denied.
+    expect(asks).toHaveLength(1);
+    expect(asks[0]!.requestedScope).toBe("read:*");
+    expect(asks[0]!.body).toBe(form);
+    expect(asks[0]!.denyWhenOff).toBe(true);
+    expect(tokenRes.headers.get("cache-control")).toBe("no-store");
+    const token = await tokenRes.json() as {
+      access_token: string;
+      token_type:   string;
+      expires_in:   number;
+      scope?:       string;
+    };
+    expect(token.token_type).toBe("Bearer");
+    expect(token.expires_in).toBe(300);
+    expect(token.scope).toBe("read:*");
+
+    // Decompose JWS compact form and verify the signature with the
+    // JWK published at /.well-known/jwks.json (which is the same
+    // pubkey we generated above — the round-trip is the assertion).
+    const parts = token.access_token.split(".");
+    expect(parts.length).toBe(3);
+    const [hB64, pB64, sB64] = parts as [string, string, string];
+
+    const jwksRes = await route.handle(
+      makeReq(PATH_JWKS),
+      envWith({ INTERLACE_MASTER_PUBKEY: pubB64Std }),
+    );
+    const { keys } = await jwksRes.json() as { keys: Array<JsonWebKey> };
+    const verifier = await crypto.subtle.importKey(
+      "jwk",
+      keys[0]!,
+      { name: "Ed25519" } as unknown as AlgorithmIdentifier,
+      false,
+      ["verify"],
+    );
+    const signingInput = new TextEncoder().encode(`${hB64}.${pB64}`);
+    const sigBytes = b64UrlDecode(sB64);
+    const ok = await crypto.subtle.verify("Ed25519", verifier, sigBytes, signingInput);
+    expect(ok).toBe(true);
+
+    // JWT claims sanity check.
+    const payload = JSON.parse(new TextDecoder().decode(b64UrlDecode(pB64))) as Record<string, unknown>;
+    expect(payload.iss).toBe(BASE_URL);
+    expect(payload.aud).toBe("https://rp.example");
+    // The token is the caller's, never the cluster's (ADR-0086).
+    expect(payload.sub).toBe(CALLER_FP);
+    expect(payload.sub).not.toBe(FINGERPRINT);
+    expect(payload.scope).toBe("read:*");
+    expect(typeof payload.iat).toBe("number");
+    expect(typeof payload.exp).toBe("number");
+    expect((payload.exp as number) - (payload.iat as number)).toBe(300);
+
+    // JWT header sanity check.
+    const header = JSON.parse(new TextDecoder().decode(b64UrlDecode(hB64))) as Record<string, unknown>;
+    expect(header.alg).toBe("EdDSA");
+    expect(header.typ).toBe("JWT");
+    expect(header.kid).toBe(FINGERPRINT);
+  });
+
+  it("rejects non-form content-types with invalid_request", async () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(
+      makeReq(PATH_OAUTH_TOKEN, {
+        method:  "POST",
+        headers: { "content-type": "application/json" },
+        body:    '{"grant_type":"client_credentials"}',
+      }),
+      envWith(),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("invalid_request");
+  });
+
+  it("rejects unsupported grant types per RFC 6749 §5.2", async () => {
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(
+      makeReq(PATH_OAUTH_TOKEN, {
+        method:  "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body:    "grant_type=password&username=x&password=y",
+      }),
+      envWith(),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("unsupported_grant_type");
+  });
+
+  it("returns 503 temporarily_unavailable when notme can't sign", async () => {
+    const notme: FetchResponder = async () => new Response("nope", { status: 404 });
+    const route = new WellKnownIdentityBridgeRoute(makeManifest(), passingGate([]));
+    const res = await route.handle(
+      tokenRequest("grant_type=client_credentials&scope=read%3A%2A"),
+      envWith({}, notme),
+    );
+    expect(res.status).toBe(503);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("temporarily_unavailable");
+  });
+
+  it("refuses a caller without a lease, and signs nothing", async () => {
+    // The real gate. The test env runs CLOISTER_MODE=dev with no authority, so
+    // the gate is off; an off gate still refuses this endpoint (denyWhenOff),
+    // because the token would have no caller to name.
+    let signed = false;
+    const jwtSigner: Env["NOTME_JWT"] = {
+      async signJwt() { signed = true; return { ok: false, code: "unused", message: "unused" }; },
+      async issuerPublicKey() { return { ok: false, code: "unused", message: "unused" }; },
+    };
+    const route = new WellKnownIdentityBridgeRoute(makeManifest());
+    const res = await route.handle(
+      tokenRequest("grant_type=client_credentials&scope=read%3A%2A"),
+      envWith({}, undefined, jwtSigner),
+    );
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toBe("Signet");
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe("invalid_client");
+    expect(signed).toBe(false);
+  });
+
+  it("a lease the gate refuses is invalid_client; a CA outage is temporarily_unavailable", async () => {
+    const denied = await new WellKnownIdentityBridgeRoute(makeManifest(), refusingGate(ERR_SCOPE_DENIED))
+      .handle(tokenRequest("grant_type=client_credentials&scope=admin%3A%2A"), envWith());
+    expect(denied.status).toBe(401);
+    expect((await denied.json() as Record<string, unknown>).error).toBe("invalid_client");
+
+    const outage = await new WellKnownIdentityBridgeRoute(makeManifest(), refusingGate(ERR_CA_UNAVAILABLE))
+      .handle(tokenRequest("grant_type=client_credentials&scope=read%3A%2A"), envWith());
+    expect(outage.status).toBe(503);
+    expect((await outage.json() as Record<string, unknown>).error).toBe("temporarily_unavailable");
+  });
+
+  it("a request must name exactly one scope, and is refused before any gate work", async () => {
+    for (const form of [
+      "grant_type=client_credentials",
+      "grant_type=client_credentials&scope=",
+      "grant_type=client_credentials&scope=read%3A%2A+write%3A%2A",
+    ]) {
+      const asks: GateAsk[] = [];
+      const res = await new WellKnownIdentityBridgeRoute(makeManifest(), passingGate(asks))
+        .handle(tokenRequest(form), envWith());
+      expect(res.status, form).toBe(400);
+      expect((await res.json() as Record<string, unknown>).error, form).toBe("invalid_scope");
+      expect(asks, form).toHaveLength(0);
+    }
+  });
+});
+
+// ── base64 helpers (test-local) ───────────────────────────────────────────
+
+function b64Encode(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
+function b64UrlEncode(bytes: Uint8Array): string {
+  return b64Encode(bytes)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function b64UrlDecode(s: string): Uint8Array {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/")
+    + "===".slice((s.length + 3) % 4);
+  const bin = atob(padded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+describe("JWKS publishes the key that SIGNS, not a copy of it", () => {
+  // The property the delegated path exists for. Before it, `pubkeyBinding`
+  // held a hand-copied value and nothing checked it against the signer — so
+  // "operator forgot to update it after notme moved to a delegated key" and
+  // "everything is fine" looked identical until a verifier rejected a token.
+  const MASTER = b64Encode(new Uint8Array(32).fill(0x11));
+  const DELEGATED = b64Encode(new Uint8Array(32).fill(0x22));
+
+  function signerServing(publicRawB64: string): Env["NOTME_JWT"] {
+    return {
+      async signJwt() {
+        return { ok: true as const, signature: new Uint8Array(64), kid: "d" };
+      },
+      async issuerPublicKey() {
+        return { ok: true as const, publicRawB64, kid: "d" };
+      },
+    };
+  }
+
+  it("serves the signer's key even when pubkeyBinding names a different one", async () => {
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS),
+      // The env still names the MASTER, exactly as a tree mid-migration would.
+      envWith({ INTERLACE_MASTER_PUBKEY: MASTER }, undefined, signerServing(DELEGATED)),
+    );
+    expect(res.status).toBe(200);
+    const { keys } = await res.json() as { keys: { x: string }[] };
+    expect(keys[0]!.x).toBe(b64UrlEncode(new Uint8Array(32).fill(0x22)));
+    expect(keys[0]!.x).not.toBe(b64UrlEncode(new Uint8Array(32).fill(0x11)));
+  });
+
+  it("503s rather than publishing the master when the signer refuses", async () => {
+    // Falling back to pubkeyBinding here would publish the MASTER while notme
+    // signs delegated — the exact mismatch this path removes, wearing a 200.
+    const refusing: Env["NOTME_JWT"] = {
+      async signJwt() { return { ok: false as const, code: "ISSUER_NOT_DELEGATED", message: "no" }; },
+      async issuerPublicKey() { return { ok: false as const, code: "ISSUER_NOT_DELEGATED", message: "no" }; },
+    };
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS), envWith({ INTERLACE_MASTER_PUBKEY: MASTER }, undefined, refusing));
+    expect(res.status).toBe(503);
+    expect(await res.text()).not.toContain(MASTER);
+  });
+
+  it("503s rather than publishing the master when the signer throws", async () => {
+    const broken: Env["NOTME_JWT"] = {
+      async signJwt(): Promise<never> { throw new Error("down"); },
+      async issuerPublicKey(): Promise<never> { throw new Error("down"); },
+    };
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS), envWith({ INTERLACE_MASTER_PUBKEY: MASTER }, undefined, broken));
+    expect(res.status).toBe(503);
+  });
+
+  it("falls back to pubkeyBinding only when NO signer is bound", async () => {
+    // The pre-delegation deployment shape, still supported.
+    const res = await new WellKnownIdentityBridgeRoute(makeManifest()).handle(
+      makeReq(PATH_JWKS), envWith({ INTERLACE_MASTER_PUBKEY: MASTER }));
+    expect(res.status).toBe(200);
+    const { keys } = await res.json() as { keys: { x: string }[] };
+    expect(keys[0]!.x).toBe(b64UrlEncode(new Uint8Array(32).fill(0x11)));
   });
 });

@@ -150,9 +150,32 @@ struct Actor {
   # discovery doc resolves this at runtime to publish the pubkey;
   # the key bytes themselves never appear in the manifest.
   #
-  # It is the key the identity bridge publishes (`nostr.json`). Cloister
-  # signs no tokens with it or any other key (ADR-0086): notme is the token
-  # authority, so this binding never needs to name a signing key.
+  # The identity bridge publishes this key in `nostr.json`. Its JWKS
+  # publishes it only when no delegated signer is bound: with `NOTME_JWT`
+  # bound, JWKS asks notme for the key `/oauth/token` is signed with
+  # (`JwtSigner.issuerPublicKey`) and publishes that instead.
+  #
+  # ⚠ A DELEGATED JWT SIGNER MUST NOT SHARE THE MASTER KEY. If this ever
+  # points at a key some other party can be asked to sign arbitrary bytes
+  # with, that is an authentication bypass rather than a forgery oracle:
+  # notme's own access tokens (typ "at+jwt", iss "https://auth.notme.bot")
+  # are signed with the master, and `verifyAccessToken`'s issuer check is
+  # optional and unchecked by default — deliberately, so the SDK works
+  # against self-hosted deployments — so most verifiers never notice an
+  # impersonated issuer. Per notme PR #62 / cloister-5f7e5c.
+  #
+  # Key separation is the load-bearing control, not the claim checks: the
+  # delegated signature must not verify under the master public key, and
+  # that holds even if every claim check were deleted.
+  #
+  # ADR-014's receipts fix does NOT transfer here. Receipts were safe on a
+  # shared key because the Interlace spec pins eight fields, so a signer can
+  # validate → re-encode → compare and the signable set is closed. A JWT
+  # payload has no schema; arbitrary claims ARE the useful surface, so there
+  # is nothing to canonicalize and nothing left worth having.
+  #
+  # Cloister is indifferent to WHICH key this names — the discovery doc
+  # publishes whatever the binding holds and takes `kid` from the manifest.
   pubkeyBinding   @2 :Text;
 
   # Where this actor publishes its bilateral attestation chains. Empty
@@ -231,15 +254,18 @@ struct Route {
     # See ADR-0007 §11 + threat model §9.
     disclosure          @6 :Void;
 
-    # Identity discovery bridge — surfaces the cluster's native Interlace
-    # identity (actor fingerprint + pubkey) under the WebFinger and Nostr
-    # NIP-05 well-known paths. First non-MCP tenant of the router (per
-    # ADR-0002). One route entry covers both paths because they derive from
-    # the same identity surface. The handler dispatches by URL pathname;
-    # the `path` on this Route is a sentinel marker (the actual paths are
-    # `/.well-known/webfinger` and `/.well-known/nostr.json`). Cloister
-    # issues no tokens (ADR-0086): the token endpoint and the OIDC
-    # discovery and JWKS documents are retired. cloister-c9922f.
+    # Multi-format identity discovery bridge — surfaces the cluster's
+    # native Interlace identity (actor.pubkey + capabilities) under the
+    # OIDC, WebFinger, and Nostr NIP-05 well-known paths, plus a minimal
+    # `client_credentials` token endpoint. First non-MCP tenant of the
+    # router (per ADR-0002). One route entry covers five concrete paths
+    # because they all derive from the same identity surface — adding a
+    # path-per-format would multiply manifest entries with no semantic
+    # gain. The handler internally dispatches by URL pathname; the
+    # `path` on this Route is a sentinel marker (the actual paths are
+    # `/.well-known/openid-configuration`, `/.well-known/jwks.json`,
+    # `/.well-known/webfinger`, `/.well-known/nostr.json`,
+    # `/oauth/token`). cloister-c9922f.
     wellKnownIdentityBridge @7 :Void;
 
     # OCI Distribution Spec (v1.1) registry — Phase 1 read-only pull

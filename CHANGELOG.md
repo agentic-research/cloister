@@ -8,22 +8,21 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
-### 2026-11 — cloister issues no tokens; notme does (ADR-0086)
+### 2026-11 — a token is minted only for a lease holder, in that holder's name (ADR-0086)
 
-- The identity bridge no longer serves `POST /oauth/token`,
-  `/.well-known/openid-configuration` or `/.well-known/jwks.json`. Each now
-  answers 404. A client gets its token from notme's `POST /token`, which
-  issues sender-constrained tokens to a caller that has proved who it is.
-- The endpoint authenticated no client, although its tenant doc said it
-  required a lease. A second token issuer beside notme's was the problem
-  underneath, so it is removed rather than gated.
-- The `NOTME_JWT` binding is gone from `wrangler.toml`, the test config and
-  the binding-parity rail's declared asymmetries.
-- WebFinger and NIP-05 stay. WebFinger no longer names cloister as an OIDC
-  issuer.
-- Operators: the gateway's origin can come off notme's
-  `DELEGATED_JWT_ISSUERS`. A deployment still running the earlier gateway
-  should remove it now.
+- `POST /oauth/token` requires a lease, always, dev mode included. Its tenant
+  doc said it did. The code checked no client and named the cluster as every
+  token's subject.
+- The token's subject is now the caller's lease fingerprint. The request names
+  exactly one scope, the gate checks the lease covers it, and the token carries
+  that scope only.
+- Refusals are `401 invalid_client`, `503 temporarily_unavailable` when the CA
+  bundle is unavailable, and `400 invalid_scope` without exactly one scope.
+- Two comments about which key `/.well-known/jwks.json` publishes predated the
+  change that makes it ask notme for the signing key, and are corrected.
+- The threat model gains §6.6. The token is still a bearer token, because
+  notme's delegated signer refuses to bind a key; that is recorded as residual.
+- `url` 2.5.9 in both Rust lockfiles, for RUSTSEC-2026-0592.
 
 ### 2026-11 — the lock writer's carry rule keeps the records #366 could drop
 

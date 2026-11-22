@@ -411,18 +411,20 @@ test("killProcessGroup falls back to the leader when no group exists", () => {
 });
 
 test("several bindings on ONE service launch ONE process", () => {
-  // Real shape, not hypothetical: cloister binds notme-bot twice — NOTME for
-  // the /identity/* fetch proxy, NOTME_RECEIPTS for an RPC entrypoint, each its
-  // own binding for least privilege (notme's ReceiptSigner comment is explicit
-  // that sharing one binding would redirect /identity/* to a class with no
-  // fetch handler).
+  // Real shape, not hypothetical: cloister binds notme-bot three times — NOTME
+  // for the /identity/* fetch proxy, NOTME_JWT and NOTME_RECEIPTS for two
+  // distinct RPC entrypoints, each its own binding for least privilege
+  // (notme's ReceiptSigner comment is explicit that sharing one binding would
+  // redirect /identity/* to a class with no fetch handler).
   //
-  // Mapping bindings 1:1 to processes started notme-bot once per binding, on
-  // its own port. That is not merely wasteful: wrangler pairs service bindings
-  // through its dev registry by worker NAME, so two live registrations of one
-  // name is the single thing that mechanism cannot survive.
+  // Mapping bindings 1:1 to processes started notme-bot THREE times on three
+  // ports. That is not merely wasteful: wrangler pairs service bindings
+  // through its dev registry by worker NAME, so three live registrations of
+  // one name is the single thing that mechanism cannot survive.
   const workers = resolveCompanionWorkers(
     ['[[services]]', 'binding = "NOTME"', 'service = "notme-bot"', '',
+     '[[services]]', 'binding = "NOTME_JWT"', 'service = "notme-bot"',
+     'entrypoint = "JwtSigner"', '',
      '[[services]]', 'binding = "NOTME_RECEIPTS"', 'service = "notme-bot"',
      'entrypoint = "ReceiptSigner"', '',
      '[[services]]', 'binding = "OTHER"', 'service = "other-worker"'].join("\n"),
@@ -436,7 +438,7 @@ test("several bindings on ONE service launch ONE process", () => {
 });
 
 test("the real wrangler.toml resolves one process per distinct service", () => {
-  // Runs against the SHIPPED tree, so adding another notme binding cannot
+  // Runs against the SHIPPED tree, so adding a fourth notme binding cannot
   // reintroduce the fan-out without failing here. A fixture-only version of
   // this test would have passed throughout the bug it exists to prevent.
   const workers = resolveCompanionWorkers(

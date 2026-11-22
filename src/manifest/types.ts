@@ -141,15 +141,15 @@ export type RouteKind =
   | { wellKnownInterlace:      null }
   | { disclosure:              null }
   /**
-   * Identity discovery bridge (cloister-c9922f). First non-MCP tenant.
-   * Handler internally serves two concrete paths derived from the same
-   * identity surface:
+   * Multi-format identity discovery bridge (cloister-c9922f). First non-MCP
+   * tenant. Handler internally serves five concrete paths derived from
+   * the same identity surface:
    *
+   *   - `/.well-known/openid-configuration`  (OIDC discovery, RFC 8414)
+   *   - `/.well-known/jwks.json`             (RFC 7517 + RFC 8037 EdDSA)
    *   - `/.well-known/webfinger`             (JRD, RFC 7033)
    *   - `/.well-known/nostr.json`            (NIP-05)
-   *
-   * Cloister issues no tokens (ADR-0086): the token endpoint and the OIDC
-   * discovery and JWKS documents that described it are retired.
+   *   - `/oauth/token`                       (client_credentials grant)
    *
    * The route's `path` field is a sentinel marker — the handler matches
    * on the actual paths above via its own `match()`. See

@@ -122,11 +122,12 @@ function toEdgeRoute(route: Route, manifest: Gateway): EdgeRoute {
     return new DisclosureRoute();
   }
   if ("wellKnownIdentityBridge" in k) {
-    // Identity discovery (cloister-c9922f). One EdgeRoute handles both
-    // concrete paths (`/.well-known/webfinger`, `/.well-known/nostr.json`)
-    // because they project the same identity surface — `manifest.actor` +
-    // the master pubkey bound at `env[actor.pubkeyBinding]`. Cloister
-    // issues no tokens (ADR-0086). First non-MCP tenant on the
+    // Multi-format identity discovery (cloister-c9922f). One EdgeRoute
+    // handles all five concrete paths (`/.well-known/openid-configuration`,
+    // `/.well-known/jwks.json`, `/.well-known/webfinger`,
+    // `/.well-known/nostr.json`, `/oauth/token`) because they all project
+    // the same identity surface — `manifest.actor` + the master pubkey
+    // bound at `env[actor.pubkeyBinding]`. First non-MCP tenant on the
     // router. The route's `path` field is a sentinel marker; the actual
     // path matching happens inside the handler.
     return new WellKnownIdentityBridgeRoute(manifest);

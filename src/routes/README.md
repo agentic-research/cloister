@@ -23,7 +23,7 @@ and wires the right concrete `EdgeRoute` class into the `Router` chain.
 | `disclosure.ts` | `GET /interlace/peers/{fingerprint}` | Streams a peer's attestation chain + pending state as JSONL with HMAC-signed cursors and constant-time 404s. Lease-gated when `INTERLACE_ROOT_PUBKEY` is set. Threat-model §9. |
 | `notme-identity.ts` | `/identity/*` | Service-binding proxy to the notme bot; strips the `/identity` prefix. |
 | `well-known.ts` | `GET /.well-known/interlace/index.json` | Interlace discovery doc synthesised from the manifest's `actor` + `policy` + mcp-route capabilities. ADR-0007 §4.1. |
-| `well-known-identity.ts` | `GET /.well-known/{webfinger,nostr.json}` | Identity discovery bridge — WebFinger / NIP-05. Cloister issues no tokens (ADR-0086); notme's `/token` does. |
+| `well-known-identity.ts` | `GET /.well-known/{openid-configuration,jwks.json,webfinger,nostr.json}`, `POST /oauth/token` | Multi-format identity discovery bridge — OIDC / JWKS / WebFinger / NIP-05 + a working `client_credentials` OAuth2 IdP. |
 | `well-known-mcp-registry.ts` | `GET /.well-known/mcp-registry/v0.1/servers[/{name}]` | Surfaces the manifest's upstream catalog under the [MCP Registry](https://modelcontextprotocol.io/registry) OpenAPI shape. Per [ADR-0016](../../docs/adr/0016-cloister-as-private-mcp-registry.md). |
 | `oci-registry.ts` | `GET/HEAD /v2/*` | OCI Distribution v1.1 read-only pull path. Blobs live in BlobStore; tags in `TrustStore.registry_tags`. Sibling non-MCP tenant on the ADR-0002 substrate. |
 | `health.ts` | `GET /health` | Liveness + configured-backends snapshot for external probes. |

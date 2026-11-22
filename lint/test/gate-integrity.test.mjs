@@ -243,8 +243,6 @@ test("PROPERTY: every recipe on disk is instantiable by the init CLI", async () 
 //
 //     POST /oauth/token  ->  404  identity bridge disabled
 //
-// (that token path is since retired, ADR-0086; the lesson is about the recipe)
-//
 // A recipe that ships a guaranteed-dead route is exactly the multi-tenant-smoke
 // failure again: the docs, the declaration, and the runtime each believed
 // something different, and the gate agreed with all three.

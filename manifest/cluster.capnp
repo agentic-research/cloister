@@ -909,10 +909,10 @@ struct Route {
     # Lease-gated when INTERLACE_ROOT_PUBKEY is set.
     disclosure          @6 :Void;
 
-    # Identity discovery bridge — surfaces the cluster's native Interlace
-    # identity under the WebFinger and Nostr NIP-05 well-known paths.
-    # Cloister issues no tokens (ADR-0086). Sentinel `path`; handler
-    # dispatches by URL internally.
+    # Multi-format identity discovery bridge — surfaces the cluster's
+    # native Interlace identity under the OIDC, WebFinger, and Nostr
+    # NIP-05 well-known paths, plus a minimal `client_credentials` token
+    # endpoint. Sentinel `path`; handler dispatches by URL internally.
     wellKnownIdentityBridge @7 :Void;
 
     # OCI Distribution Spec (v1.1) registry. Sentinel `path`; URLPatterns

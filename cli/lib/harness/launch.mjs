@@ -985,14 +985,14 @@ export function resolveCompanionWorkers(wranglerToml, env = process.env) {
     }
   }
   // ONE PROCESS PER SERVICE, not per binding. Several bindings may name the
-  // same Worker — cloister binds notme-bot twice (NOTME for the /identity/*
-  // fetch proxy, NOTME_RECEIPTS for an RPC entrypoint, each its own binding
-  // for least privilege). Mapping bindings 1:1 to processes launched
-  // notme-bot once per binding, on its own port.
+  // same Worker — cloister binds notme-bot three times (NOTME for the
+  // /identity/* fetch proxy, NOTME_JWT and NOTME_RECEIPTS for two distinct RPC
+  // entrypoints, each its own binding for least privilege). Mapping bindings
+  // 1:1 to processes launched notme-bot THREE times on three ports.
   //
   // Not merely wasteful: the comment above this function says wrangler pairs
   // service bindings through its dev registry by worker NAME, not by port. So
-  // two live registrations of one name is the one thing that reasoning
+  // three live registrations of one name is the one thing that reasoning
   // cannot survive. Deduping here rather than at the call site keeps the
   // invariant with the derivation — this function's contract is "the Workers a
   // run needs", and a Worker needed twice is still one Worker.

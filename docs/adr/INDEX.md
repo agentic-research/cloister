@@ -90,4 +90,4 @@ beads + git (see each ADR's tracking bead), never typed here. Reserved-but-unfil
 | [ADR-0083](0083-every-placement-runs-images-by-digest-resolved-for-you.md) | Every placement runs images by digest, resolved for you | Accepted · 2026-11-21 |
 | [ADR-0084](0084-cloister-keeps-no-rust.md) | Cloister keeps no Rust; each crate it still has names its exit | Accepted · 2026-11-22 |
 | [ADR-0085](0085-every-lease-refusal-is-recorded.md) | Every lease refusal is recorded | Accepted · 2026-11-22 |
-| [ADR-0086](0086-cloister-issues-no-tokens.md) | Cloister issues no tokens; notme does | Accepted · 2026-11-22 |
+| [ADR-0086](0086-a-token-is-minted-only-for-a-lease-holder.md) | A token is minted only for a lease holder, in that holder's name | Accepted · 2026-11-22 |
