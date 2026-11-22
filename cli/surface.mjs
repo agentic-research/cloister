@@ -505,10 +505,12 @@ export const COMMANDS = [
     usage: "cloister artifacts pull [<input>...] [--print] [--yes] [--allow-unpinned]",
     summary: "Acquire lockfile-pinned OCI artifacts",
     detail:
-      "Pulls every image cluster.lock.toml pins into the local container store " +
-      "($CONTAINER_CMD, else docker, nerdctl or podman), so `cloister cluster up`, which " +
-      "emits pull_policy: never, can boot offline. That includes each image a multi-image " +
-      "producer names for a bundle in [[inputs.<input>.ociBundles]]. It shows the plan " +
+      "Pulls every image cluster.lock.toml pins into the local container store, so " +
+      "`cloister cluster up`, which emits pull_policy: never, can boot offline. The store " +
+      "is the one `cluster up` starts from: $CONTAINER_CMD, else the engine its compose " +
+      "runtime drives. That includes each image a multi-image producer names for a bundle " +
+      "in [[inputs.<input>.ociBundles]], and each operator image the lock pins in " +
+      "[[images]], pulled by its digest. Naming inputs pulls only theirs. It shows the plan " +
       "and asks before downloading; without a terminal to ask on, it refuses unless --yes " +
       "is given. A tag-pinned or bare reference is refused unless --allow-unpinned is " +
       "given too: consent to download is not consent to weaker provenance.",

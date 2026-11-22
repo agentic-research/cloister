@@ -22,7 +22,12 @@
 //   identifier:version  — tag-pinned (WARN: not content-addressed)
 //   identifier          — registry default/latest (WARN)
 //
-// Runtime: $CONTAINER_CMD, else docker, else nerdctl, else podman.
+// Runtime: $CONTAINER_CMD, else the engine `cluster up`'s compose runtime
+// drives (nerdctl, podman or docker, whichever it finds first, or COMPOSE_CMD's),
+// so what is pulled here is in the store `cluster up` starts from (ADR-0083 §4).
+//
+// Images: each input's pins, and each operator image the lock pins in
+// `[[images]]` (ADR-0083 §2), pulled by its digest.
 //
 // Flags:
 //   --print   list the images the lockfile pins; pull nothing (CI / preview).
@@ -42,7 +47,9 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 import { parse as parseToml } from "smol-toml";
-import { ociBundleClaims, ociImageRef } from "../lib/oci-artifact.mjs";
+import { ociBundleClaims, ociImageRef, isSha256Digest, parseImageRef } from "../lib/oci-artifact.mjs";
+import { engineFor } from "../lib/cluster/compose-up.mjs";
+import { ClusterUsageError, resolveComposeCmd } from "./cluster.mjs";
 import { createOutputContext } from "../lib/output.mjs";
 import {
   isAffirmative,
@@ -99,7 +106,22 @@ export function collectOciRefs(lockDoc) {
       rows.push({ name, bundle, ref, pinned: !!row.digest });
     }
     return rows.length > 0 ? rows : [{ name, ref: null, pinned: false }];
-  });
+  }).concat(imageRows(lockDoc));
+}
+
+/**
+ * One row per operator image the lock pins in `[[images]]` (ADR-0083 §2),
+ * named by its declared reference and pulled by its digest alone: a digest
+ * names one set of bytes, and the tag is not the engine's to resolve again.
+ */
+function imageRows(lockDoc) {
+  const images = Array.isArray(lockDoc?.images) ? lockDoc.images : [];
+  return images
+    .filter((row) => typeof row?.ref === "string" && isSha256Digest(row.digest))
+    .map(({ ref, digest }) => {
+      const { registry, repository } = parseImageRef(ref);
+      return { name: ref, ref: `${registry ? `${registry}/` : ""}${repository}@${digest}`, pinned: true, image: true };
+    });
 }
 
 /**
@@ -141,13 +163,22 @@ export function validatePullSafety(rows, { allowUnpinned }) {
 
 export { isAffirmative };
 
-function detectRuntime() {
-  if (process.env.CONTAINER_CMD) return process.env.CONTAINER_CMD;
-  for (const cmd of ["docker", "nerdctl", "podman"]) {
-    const r = spawnSync(cmd, ["--version"], { stdio: "ignore" });
-    if (r.status === 0) return cmd;
+/**
+ * The engine whose store `cluster up` starts from, by the rule `cluster up`
+ * uses: CONTAINER_CMD when set, otherwise the engine its compose runtime
+ * drives. A different order here filled one store while `cluster up` read
+ * another, on any machine with two engines. Null when there is none.
+ *
+ * Exported for unit tests.
+ */
+export function detectRuntime(env = process.env, deps = {}) {
+  if (env.CONTAINER_CMD) return env.CONTAINER_CMD;
+  try {
+    return engineFor(resolveComposeCmd({ ...deps, env }), env);
+  } catch (error) {
+    if (error instanceof ClusterUsageError) return null;
+    throw error;
   }
-  return null;
 }
 
 function printPlan(rows, log, style) {

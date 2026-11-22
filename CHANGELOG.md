@@ -8,6 +8,19 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `artifacts pull` fills the store `cluster up` starts from, operator pins included
+
+- `artifacts pull` chooses its engine by `cluster up`'s rule:
+  `CONTAINER_CMD` if set, otherwise the engine `cluster up`'s compose runtime
+  drives. It used to try docker, then nerdctl, then podman, while `cluster up`
+  tries nerdctl, then podman, then docker. On a machine with docker and
+  podman, as GitHub's runners have, it pulled into docker's store while
+  `cluster up` started podman's.
+- It also pulls each operator image the lock pins in `[[images]]`
+  (ADR-0083 §2), by its digest. It used to read only the inputs' pins, so an
+  offline `cluster up`, which pulls nothing itself, lacked an operator's
+  pinned image.
+
 ### 2026-11 — `--locked` runs only what the lock pins (ADR-0083 §5)
 
 - `cluster up --locked` starts only a digest cluster.toml writes or
