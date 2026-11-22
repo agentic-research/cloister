@@ -28,7 +28,10 @@ import {
   validatePullSafety,
   isAffirmative,
   selectOciRefs,
+  detectRuntime,
 } from "../../commands/artifacts-pull.mjs";
+import { resolveComposeCmd } from "../../commands/cluster.mjs";
+import { engineFor } from "../../lib/cluster/compose-up.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PULL_SCRIPT = resolve(HERE, "../../..", "cli", "commands", "artifacts-pull.mjs");
@@ -114,6 +117,31 @@ test("collectOciRefs: empty / missing inputs table → []", () => {
   assert.deepEqual(collectOciRefs({}), []);
   assert.deepEqual(collectOciRefs({ inputs: {} }), []);
   assert.deepEqual(collectOciRefs(null), []);
+});
+
+test("collectOciRefs: each operator image the lock pins is pulled by its digest alone (ADR-0083 §2)", () => {
+  const D = `sha256:${"a".repeat(64)}`;
+  const rows = collectOciRefs({
+    inputs: { mache: { oci: { identifier: "ghcr.io/acme/mache", version: "1", digest: `sha256:${"b".repeat(64)}` } } },
+    images: [{ ref: "ghcr.io/acme/api:1.4", digest: D }, { ref: "docker.io/redis:7", digest: D }, { ref: "ghcr.io/acme/bad:1", digest: "sha256:short" }],
+  });
+  assert.deepEqual(rows.filter((r) => r.image), [
+    { name: "ghcr.io/acme/api:1.4", ref: `ghcr.io/acme/api@${D}`, pinned: true, image: true },
+    { name: "docker.io/redis:7", ref: `docker.io/redis@${D}`, pinned: true, image: true },
+  ]);
+  // Naming inputs pulls only theirs.
+  assert.deepEqual(selectOciRefs(rows, ["mache"]).map((r) => r.name), ["mache"]);
+});
+
+test("detectRuntime: the store `cluster up` starts from, by its own rule", () => {
+  // On a machine with docker and podman, `cluster up` drives podman compose;
+  // pulling into docker's store left an offline `cluster up` without its images.
+  const which = (bin) => ["docker", "podman"].includes(bin);
+  assert.equal(detectRuntime({}, { which }), "podman");
+  assert.equal(detectRuntime({}, { which }), engineFor(resolveComposeCmd({ env: {}, which }), {}));
+  assert.equal(detectRuntime({ COMPOSE_CMD: "docker compose" }, { which }), "docker");
+  assert.equal(detectRuntime({ CONTAINER_CMD: "nerdctl" }, { which }), "nerdctl");
+  assert.equal(detectRuntime({}, { which: () => false }), null);
 });
 
 // ── consent + immutable-artifact policy ──────────────────────────────
