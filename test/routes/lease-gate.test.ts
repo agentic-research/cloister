@@ -1,7 +1,7 @@
 // Table-driven tests for resolveLeaseGate — the ADR-0053 authority-source
 // resolver (cloister-220c9d). Pure over env, so no workerd needed.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveLeaseGate } from "../../src/routes/lease-gate.js";
 import {
   gateAndVerify,
@@ -77,5 +77,62 @@ describe("gateAndVerify (ADR-0053 flow)", () => {
     const v = await gateAndVerify(env({}), 0, verify);
     expect(v.kind).toBe("reject");
     if (v.kind === "reject") expect(v.code).toBe(ERR_CA_UNAVAILABLE);
+  });
+});
+
+// ADR-0085: every refusal through the one gate is recorded, once, as a
+// structured event, and the verdict the caller turns into its response is
+// unchanged. The event never carries header material.
+describe("gateAndVerify records every refusal (ADR-0085)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const recorded = (spy: ReturnType<typeof vi.spyOn>) =>
+    spy.mock.calls.map((args) => JSON.parse(String(args[0]))).filter((e) => e.target === "lease_gate");
+
+  it("a deny-when-off refusal is one event naming the route, method, scope and code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const req = new Request("http://x/vault/proxy/svc/v1?x=1", { method: "POST", body: "{}" });
+    const v = await gateAndVerify(env({ CLOISTER_MODE: "dev" }), 0, { req, body: "{}", id: 1, method: "ping", params: undefined }, { denyWhenOff: true });
+    expect(v.kind).toBe("reject");
+    expect(recorded(warn)).toEqual([{
+      target: "lease_gate", op: "verify", outcome: "refused",
+      code: ERR_UNAUTHENTICATED, reason: "authentication required",
+      route: "/vault/proxy/svc/v1", method: "ping", scope: "unknown:ping",
+    }]);
+  });
+
+  it("failing closed for want of a CA bundle is recorded", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const req = new Request("http://x/mcp", { method: "POST", body: "{}" });
+    await gateAndVerify(env({}), 0, { req, body: "{}", id: 1, method: "tools/list", params: undefined });
+    const events = recorded(warn);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ code: ERR_CA_UNAVAILABLE, reason: "CA bundle unavailable", scope: "tools:list" });
+  });
+
+  it("a pass-through gate records nothing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const req = new Request("http://x/mcp", { method: "POST", body: "{}" });
+    const v = await gateAndVerify(env({ CLOISTER_MODE: "dev" }), 0, { req, body: "{}", id: 1, method: "ping", params: undefined });
+    expect(v.kind).toBe("off");
+    expect(recorded(warn)).toEqual([]);
+  });
+
+  it("a verifier refusal is recorded with its reason, and none of the request's header bytes", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const req = new Request("http://x/mcp", {
+      method: "POST", body: "{}",
+      headers: { Authorization: "Signet CERTBYTES", "X-Signet-Sig": "SIGBYTES", "X-Signet-Nonce": "NONCEBYTES", "X-Signet-Ts": "not-a-number" },
+    });
+    const v = await gateAndVerify(env({ CLOISTER_MODE: "dev", DEV_CA_MASTER: "a".repeat(64) }), 0, { req, body: "{}", id: 1, method: "tools/list", params: undefined });
+    expect(v.kind).toBe("reject");
+    const events = recorded(warn);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ outcome: "refused", route: "/mcp", method: "tools/list", scope: "tools:list" });
+    if (v.kind === "reject") expect(events[0]).toMatchObject({ code: v.code, reason: v.message });
+    // The verifier refused, not the CA-bundle step before it.
+    expect(events[0].reason).toMatch(/^lease auth header malformed: /);
+    for (const material of ["CERTBYTES", "SIGBYTES", "NONCEBYTES"]) expect(JSON.stringify(events[0])).not.toContain(material);
   });
 });

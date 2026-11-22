@@ -32,6 +32,7 @@ import { errResponse, type JsonRpcId } from "../types.js";
 import { CaUnavailableError, isCertEpochCurrent, type CABundle } from "../storage/ca-bundle-cache.js";
 import { resolveCABundle } from "../storage/ca-bundle-source.js";
 import { leaseEnforced } from "./lease-gate.js";
+import { logEvent } from "../obs/log.js";
 import { verifyCertChain, type CertClaims } from "../wire/signet-verify.js";
 
 // ── Error codes ──────────────────────────────────────────────────────────
@@ -837,6 +838,11 @@ export type GateVerdict =
  * pass — for routes (e.g. the credential vault) that must deny even under the
  * dev opt-out. Pass-through routes (mcp, oci, disclosure) leave it false and
  * proceed on `{ kind: "off" }`.
+ *
+ * Every reject is recorded here, once (ADR-0085): this is the one door every
+ * lease-gated route uses, so no refusal goes unrecorded and none is recorded
+ * twice. The verdict, and so the caller's constant-shape response, is
+ * unchanged.
  */
 export async function gateAndVerify(
   env:   Env,
@@ -851,25 +857,49 @@ export async function gateAndVerify(
   },
   opts: { denyWhenOff?: boolean } = {},
 ): Promise<GateVerdict> {
+  const refuse = (code: LeaseErrorCode, message: string): GateVerdict => {
+    recordRefusal(verify, code, message);
+    return { kind: "reject", code, message };
+  };
+
   if (!leaseEnforced(env)) {
-    return opts.denyWhenOff
-      ? { kind: "reject", code: ERR_UNAUTHENTICATED, message: "authentication required" }
-      : { kind: "off" };
+    return opts.denyWhenOff ? refuse(ERR_UNAUTHENTICATED, "authentication required") : { kind: "off" };
   }
 
   let bundle: CABundle;
   try {
     bundle = await resolveCABundle(env, nowMs);
   } catch (err) {
-    if (err instanceof CaUnavailableError) {
-      return { kind: "reject", code: ERR_CA_UNAVAILABLE, message: "CA bundle unavailable" };
-    }
+    if (err instanceof CaUnavailableError) return refuse(ERR_CA_UNAVAILABLE, "CA bundle unavailable");
     throw err;
   }
 
   const verdict = await verifyAndUpsertLease({ ...verify, env, bundle, nowMs });
-  if ("code" in verdict) {
-    return { kind: "reject", code: verdict.code, message: verdict.message };
-  }
+  if ("code" in verdict) return refuse(verdict.code, verdict.message);
   return { kind: "pass", lease: verdict };
+}
+
+/**
+ * One structured event per lease refusal (ADR-0085), for the operator: the
+ * route, the method, the scope asked for, the JSON-RPC code, and the reason
+ * the verifier gave. The reasons name what was checked (the header's shape,
+ * clock skew, the certificate's epoch, validity window and scope, the request
+ * signature, a replay); none carries the certificate, signature, nonce,
+ * timestamp header or body, and none is a credential.
+ */
+function recordRefusal(
+  verify: { req: Request; method: string; params: unknown; requestedScope?: string },
+  code: LeaseErrorCode,
+  reason: string,
+): void {
+  logEvent("warn", {
+    target:  "lease_gate",
+    op:      "verify",
+    outcome: "refused",
+    code,
+    reason,
+    route:   new URL(verify.req.url).pathname,
+    method:  verify.method,
+    scope:   verify.requestedScope ?? deriveRequestScope(verify.method, verify.params),
+  });
 }

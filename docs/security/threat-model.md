@@ -219,6 +219,20 @@ failure category. Timing matches code disclosure; nothing extra leaks.
 The hardening that *would* matter — masking which-master-key-used
 between active and prev — is a non-issue because both are public.
 
+### 6.5 Refusals are recorded (ADR-0085)
+
+`gateAndVerify`, the one door every lease-gated route uses (ADR-0053),
+records each refusal once, as a structured `lease_gate` event. The event
+carries the code, the reason, the route's path, the method and the scope
+asked for.
+
+| # | Adversary capability | Defensive invariant | Status |
+|---|---|---|---|
+| 6.5.1 | Probe the gate unseen (expired certs, scope misses, replays) | Every refusal is one recorded event; the operator sees each | Shipped; `test/routes/lease-gate.test.ts` |
+| 6.5.2 | Read authority material out of the record | The event carries no certificate, signature, nonce, timestamp header, body or credential; the reasons name what was checked, not the bytes | Shipped; the same test sends header bytes and finds none in the event |
+| 6.5.3 | Learn more from the response because refusals are recorded | The verdict, and so the constant-shape response, is unchanged | By construction: the record is a side effect of the reject |
+| 6.5.4 | Flood the log with refused requests | One event per refusal; the pre-auth budget bounds the verify path, and the platform's log pipeline samples volume | **Residual** |
+
 ## 7. Seam: counter writes (TrustStore.applyLeaseCounter)
 
 This is where §13.2 lives. Every authenticated request mutates the chain.

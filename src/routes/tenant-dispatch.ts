@@ -27,9 +27,13 @@
 //   - Unknown tenant collapses into a constant-time 404 — same response
 //     shape as the disclosure endpoint (§9.2), so the entry-point isn't
 //     a cross-tenant peer-existence oracle.
-//   - Lease verification still happens BEFORE dispatch (the per-tenant
-//     scope is part of lease verification per ADR-0007). This route is
-//     the routing primitive; it doesn't make access-control decisions.
+//   - Lease verification runs INSIDE the target tenant's gateway, after
+//     dispatch (threat model §13.7.1): this route is a pre-auth
+//     dispatcher, the routing primitive, and makes no access-control
+//     decision. The target's own gate verifies the lease and records a
+//     refusal (ADR-0085). A target that is not a gateway verifies nothing,
+//     so which bundles a tenant binding may name matters; ADR-0085 leaves
+//     that declaration open.
 
 import type { EdgeRoute } from "../router.js";
 import type { TenantDispatchSpec, TenantDispatchRow } from "../manifest/types.js";

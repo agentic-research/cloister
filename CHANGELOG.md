@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — every lease refusal is recorded (ADR-0085)
+
+- `gateAndVerify`, the one gate every lease-gated route uses, records each
+  refusal once, as a structured `lease_gate` event. It carries the JSON-RPC
+  code, the reason, the route, the method and the scope asked for. It never
+  carries a certificate, signature, nonce, timestamp header, body or
+  credential, and the caller's constant-shape response is unchanged.
+  Before, a refusal left no trace, so an operator could not see probing,
+  expired certificates, scope misses or a CA outage.
+- `tenant-dispatch.ts` said lease verification happens before dispatch. The
+  threat model (§13.7.1) and the code agree it happens inside the tenant's
+  gateway, after dispatch, and the comment now says so. Which bundles a tenant
+  binding may name is recorded as open in ADR-0085.
+- The threat model gains §6.5, refusals are recorded, with the log-flood
+  residual.
+
 ### 2026-11 — `artifacts pull` fills the store `cluster up` starts from, operator pins included
 
 - `artifacts pull` chooses its engine by `cluster up`'s rule:
