@@ -23,9 +23,13 @@ Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
   `leyline-krun-worker`. The worker now holds a lifeline to its host runtime:
   when the host runtime ends, `SIGKILL` included, the worker exits and takes its
   VM with it (ley-line-open-f963e6).
-- **Operators: re-run `cloister runtime install` after upgrading.** A runtime
-  installed before this keeps the old pair, whose VMs can outlive a killed host
-  runtime. `cluster up`'s messages and the docs now say which is which.
+- **Operators: re-run `cloister runtime install` after upgrading.** A run now
+  refuses an installed worker that the checkout's `schema-bridge.lock.json`
+  does not pin, and names that step: the worker and the host runtime were
+  installed together for another release. A worker set explicitly with
+  `CLOISTER_KRUN_WORKER` is the operator's, and is not checked. A VM an older
+  worker already started can still be running; `cluster up`'s messages and the
+  docs say how to find it.
 - The generators' output changes one header line, and every generated file is
   regenerated.
 - `task llo:bump` asks GitHub's REST API for the release and its assets,

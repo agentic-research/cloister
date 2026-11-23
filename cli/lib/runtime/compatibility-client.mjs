@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { constants, accessSync } from "node:fs";
+import { constants, accessSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -61,9 +61,12 @@ export function resolveHostRuntime({ env = process.env } = {}) {
  *
  * @param {any} record @param {Record<string, string|undefined>} env
  */
-export function hostRuntimeEnv(record, env) {
+export function hostRuntimeEnv(record, env, { pinned } = {}) {
   const microvm = resolveMicrovm(record);
   if (!microvm) return env;
+  // An explicitly set worker is the operator's, and is what runs: it is not
+  // checked against the pin. The installed one is.
+  if (!env.CLOISTER_KRUN_WORKER) refuseUnpinnedWorker(record, pinned ?? pinnedKrunWorkers());
   const out = { ...env };
   const set = (key, value) => { if (!out[key]) out[key] = value; };
   set("CLOISTER_KRUN_WORKER", microvm.krunWorker);
@@ -75,6 +78,43 @@ export function hostRuntimeEnv(record, env) {
   set("CLOISTER_LIBKRUNFW", microvm.libkrunfw);
   set("DYLD_LIBRARY_PATH", dirname(microvm.libkrunfw));
   return out;
+}
+
+/**
+ * The leyline-krun-worker digests this checkout pins, and the LLO release they
+ * are from (schema-bridge.lock.json).
+ *
+ * `runtime install` fetches the worker by that pinned digest and builds the
+ * host runtime against the pinned leyline-runtime in the same step, and the
+ * two must match: a newer worker needs the host runtime it was released with.
+ * So an installed worker this checkout does not pin means the pair was
+ * installed for another release. The record cannot say so itself: it holds
+ * the digest of what was installed, which is why it is compared with the pin.
+ */
+export function pinnedKrunWorkers(root = REPO_ROOT) {
+  const file = resolve(root, "schema-bridge.lock.json");
+  let lock;
+  try {
+    lock = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new RuntimeProviderError(`cannot check the installed microVM worker against this checkout's pin: ${file}: ${error.message}`);
+  }
+  const digests = Object.values(lock?.binaries?.["leyline-krun-worker"] ?? {})
+    .filter((digest) => typeof digest === "string" && /^[0-9a-f]{64}$/.test(digest));
+  if (digests.length === 0) {
+    throw new RuntimeProviderError(`${file} pins no leyline-krun-worker, so the installed one cannot be checked`);
+  }
+  return { version: String(lock.version ?? ""), digests };
+}
+
+/** Refuse an installed worker this checkout does not pin, with the step that fixes it. */
+function refuseUnpinnedWorker(record, { version, digests }) {
+  if (digests.includes(record.microvm.krunWorker.sha256)) return;
+  throw new RuntimeProviderError(
+    `the installed leyline-krun-worker is not the one this checkout pins for ley-line-open ${version} ` +
+      "(schema-bridge.lock.json). It and the host runtime beside it were installed for another release.\n" +
+      "Run: cloister runtime install",
+  );
 }
 
 export class CompatibilityRuntimeError extends Error {

@@ -20,7 +20,7 @@ import {
   resolveProviderArtifact,
 } from "../../lib/runtime/provider-record.mjs";
 import { installCompatibilityProvider } from "../../lib/runtime/install-compatibility.mjs";
-import { hostRuntimeEnv } from "../../lib/runtime/compatibility-client.mjs";
+import { hostRuntimeEnv, pinnedKrunWorkers } from "../../lib/runtime/compatibility-client.mjs";
 import { resolveMicrovm } from "../../lib/runtime/provider-record.mjs";
 import { main as runtimeMain } from "../../commands/runtime.mjs";
 import { resolveNativeHelper } from "../../lib/harness/launch.mjs";
@@ -400,7 +400,8 @@ test("the host runtime is started with the installed tier; a value already set i
   await installCompatibilityProvider(deps);
   const record = readProviderRecord(layout);
 
-  const env = hostRuntimeEnv(record, { PATH: "/usr/bin" });
+  const pinned = pinnedTo(record);
+  const env = hostRuntimeEnv(record, { PATH: "/usr/bin" }, { pinned });
   assert.equal(env.CLOISTER_KRUN_WORKER, layout.krunWorker);
   assert.equal(env.CLOISTER_CAS_ROOT, readProviderRecord(layout).microvm.casRoot);
   assert.equal(env.CLOISTER_CAS_STATE_DIR, layout.stateDir, "so the host runtime can re-attach the volume");
@@ -414,8 +415,42 @@ test("the host runtime is started with the installed tier; a value already set i
   // that differs from the record before it gets here (prepareCas,
   // runtime-status tests), and the host runtime refuses one that differs from
   // the attached volume (ensure_cas_volume_attached in the host runtime).
-  const passedThrough = hostRuntimeEnv(record, { CLOISTER_CAS_ROOT: "/operator/cas" });
+  const passedThrough = hostRuntimeEnv(record, { CLOISTER_CAS_ROOT: "/operator/cas" }, { pinned });
   assert.equal(passedThrough.CLOISTER_CAS_ROOT, "/operator/cas");
+});
+
+/** A pin that names exactly the worker the fixture installed. */
+const pinnedTo = (record) => ({ version: "v0.0.0-fixture", digests: [record.microvm.krunWorker.sha256] });
+
+test("a run refuses an installed worker this checkout does not pin, and names the step that fixes it", async (t) => {
+  const { layout, deps } = microvmFixture(t);
+  await installCompatibilityProvider(deps);
+  const record = readProviderRecord(layout);
+  // Installed for another release: the worker it holds is not the pinned one.
+  const other = { version: "v9.9.9", digests: ["0".repeat(64)] };
+  assert.throws(
+    () => hostRuntimeEnv(record, { PATH: "/usr/bin" }, { pinned: other }),
+    /the installed leyline-krun-worker is not the one this checkout pins for ley-line-open v9\.9\.9 \(schema-bridge\.lock\.json\)\. It and the host runtime beside it were installed for another release\.\nRun: cloister runtime install$/,
+  );
+  // The pinned worker runs.
+  assert.equal(hostRuntimeEnv(record, { PATH: "/usr/bin" }, { pinned: pinnedTo(record) }).CLOISTER_KRUN_WORKER, layout.krunWorker);
+  // A worker the operator names is theirs, and is what runs: it is not checked against the pin.
+  const operator = hostRuntimeEnv(record, { CLOISTER_KRUN_WORKER: "/operator/worker" }, { pinned: other });
+  assert.equal(operator.CLOISTER_KRUN_WORKER, "/operator/worker");
+});
+
+test("the pinned worker is read from this checkout's lock, and a lock that cannot say fails closed", (t) => {
+  const lock = JSON.parse(readFileSync(new URL("../../../schema-bridge.lock.json", import.meta.url), "utf8"));
+  const pinned = pinnedKrunWorkers();
+  assert.equal(pinned.version, lock.version);
+  assert.deepEqual(pinned.digests, Object.values(lock.binaries["leyline-krun-worker"]));
+  assert.ok(pinned.digests.length > 0, "the lock pins a worker");
+
+  const root = mkdtempSync(join(tmpdir(), "pinned-worker-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.throws(() => pinnedKrunWorkers(root), /cannot check the installed microVM worker against this checkout's pin/);
+  writeFileSync(join(root, "schema-bridge.lock.json"), JSON.stringify({ version: "v1.0.0", binaries: {} }));
+  assert.throws(() => pinnedKrunWorkers(root), /pins no leyline-krun-worker, so the installed one cannot be checked/);
 });
 
 test("a record without the tier leaves the environment untouched", async (t) => {
