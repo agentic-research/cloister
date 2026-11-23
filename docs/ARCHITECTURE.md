@@ -559,7 +559,9 @@ graph TB
 - **Nothing is provider-specific in the code.** A mapping file says which
   resource types of a provider are workloads and where their fields are.
   Cloud Run, Cloudflare and Kubernetes resources declared in Terraform are
-  each a mapping. A type with no mapping is counted and named as not read.
+  each a mapping. A Kubernetes object written as `kubernetes_manifest` is read
+  by its kind, checked against Kubernetes' own published schema. A type, or a
+  kind, with no mapping is counted and named as not read.
 - **An edge is never guessed.** A Kubernetes Service stands for a workload
   only when its selector matches exactly one. A caller is matched to an
   access grant by the identity the plan says it runs as, never by a similar

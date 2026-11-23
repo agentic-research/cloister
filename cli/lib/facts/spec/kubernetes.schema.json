@@ -1999,6 +1999,37 @@
         }
       }
     },
+    "kubernetes_manifest": {
+      "attributes": {
+        "computed_fields": {
+          "sensitive": false,
+          "type": [
+            "list",
+            "string"
+          ]
+        },
+        "manifest": {
+          "sensitive": false,
+          "type": "dynamic"
+        },
+        "object": {
+          "sensitive": false,
+          "type": "dynamic"
+        },
+        "wait_for": {
+          "sensitive": false,
+          "type": [
+            "object",
+            {
+              "fields": [
+                "map",
+                "string"
+              ]
+            }
+          ]
+        }
+      }
+    },
     "kubernetes_namespace": {
       "attributes": {
         "id": {

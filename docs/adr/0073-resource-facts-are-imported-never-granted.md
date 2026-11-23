@@ -258,6 +258,57 @@ schema, and a test runs every mapped type, not only those in a fixture.
 None of this lets a fact carry authority. A resolved Service is still an
 observation that one workload names another.
 
+**Amendment (2026-11-23): an object a resource holds whole.** Some resources
+carry an object of another API whole, in one attribute their provider leaves
+untyped (`dynamic` in its schema). Kubernetes' `kubernetes_manifest` holds any
+Kubernetes object in `manifest`. A workload written that way was not read at
+all. The report counted it under "Not read", and a check could pass because it
+never looked at it. It is now read like the same object written as the
+provider's typed resource:
+
+- **The mapping declares the resource under `objects`**: the attribute that
+  holds the object, and the fields that say what it is (`by`: `apiVersion` and
+  `kind`). The validator checks the attribute against the provider's schema:
+  it must exist, and the provider must leave it untyped.
+- **Each kind it reads is a type of its own**, named
+  `<resource type> <apiVersion> <kind>` (`kubernetes_manifest apps/v1 Deployment`).
+  Its entry uses the object's own field names (`containers`, `containerPort`),
+  not the provider's (`container`, `container_port`), so a typed entry's paths
+  do not carry over. Where the names are the same (a Service's selector, a
+  Namespace's name), the entry is `like` the typed one.
+- **Its paths are checked against the API's own published schema**, as a typed
+  entry's are against the provider's. For Kubernetes that is the OpenAPI v3
+  document each release publishes (`api/openapi-spec/v3`), projected to the
+  kinds the mapping reads by `gen/facts-spec.mjs --api`, at a pinned release
+  (1.37.0). A test regenerates the projection byte for byte when it is given
+  the documents. kubeconform validates manifests against schemas generated
+  from the same documents.
+- **A kind no entry reads is named on the "Not read" line**
+  (`kubernetes_manifest networking.k8s.io/v1 Ingress`), not only counted. An
+  object whose kind cannot be read (absent, not text, or marked sensitive) is
+  counted as `kubernetes_manifest (kind not stated)`.
+- **The configuration is one expression for the whole object.** It says what
+  the object takes from. It does not say where in the object each reference
+  sits, or which value took what. Nothing is guessed from it:
+  - its references are not read as edges. An edge comes from a value (an env
+    value or an argument holding a workload's address). A value that is
+    unknown until apply gives no edge, and a declared connection that relied
+    on it is reported unknown.
+  - an env value is drafted as a constant only when the expression takes from
+    nothing, so every value is the source's own text. Otherwise it is
+    unknown, named with what the expression takes from. A secret reference
+    names a Secret, and a value that is one workload's whole address is that
+    address, so each is drafted as what it is.
+- **An object that does not state its namespace has none here.** The cluster
+  the provider talks to decides where it lands, and the document does not say.
+  A Service's names cannot be built without one, so nothing resolves to it,
+  rather than to a guessed `default`.
+- **A sensitivity marker on a parent covers everything under it.** A document
+  may mark a whole object sensitive. Walking past that marker found no marker
+  below it, so the value under it read as public. The walk now stops at the
+  marker, for every mapping. A manifest makes the case common, but any path
+  two levels under a marked block could reach it.
+
 ## What exists today
 
 | Part | State |
@@ -272,6 +323,9 @@ observation that one workload names another.
 | Google types: Cloud Run services and jobs with invoker member rows, Cloud SQL, Cloud Tasks | built; own mapping and spec; report sections declared in the mapping |
 | Plan `configuration` references as a relation source | built; root module only |
 | Invoker evidence listing (`publicly invocable`, or unknown) | built; member rows are non-authoritative |
+| Kubernetes types: Deployments, StatefulSets, DaemonSets, Jobs, Services and Namespaces (amendment of 2026-11-19) | built; own mapping and spec |
+| Objects a resource holds whole: `kubernetes_manifest` objects of the same six kinds, checked against Kubernetes' published schema (amendment of 2026-11-23) | built |
+| Other kinds held whole (an Ingress; a custom resource, such as a Knative Service) | not built; each is a mapping entry and a projected schema |
 | Other providers | not built |
 | Target resolution from facts; emitting a policy fragment | not built; each needs its own decision |
 

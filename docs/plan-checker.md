@@ -87,7 +87,10 @@ before you rely on it. Where the plan does not say something, the draft says
 so instead of guessing.
 
 What it reads today: Google (Cloud Run and the like), Cloudflare and
-Kubernetes resources, and `wrangler.toml` with `--wrangler`.
+Kubernetes resources (the provider's typed resources, and Deployments,
+StatefulSets, DaemonSets, Jobs, Services and Namespaces written as
+`kubernetes_manifest`), and `wrangler.toml` with `--wrangler`. Anything else
+is named on the report's "Not read" line.
 
 ## In CI
 

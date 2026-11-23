@@ -29,12 +29,13 @@ import googleMapping from "./mappings/google.json" with { type: "json" };
 import kubernetesMapping from "./mappings/kubernetes.json" with { type: "json" };
 import cloudflareSpec from "./spec/cloudflare.schema.json" with { type: "json" };
 import googleSpec from "./spec/google.schema.json" with { type: "json" };
+import kubernetesApiSpec from "./spec/kubernetes-api.schema.json" with { type: "json" };
 import kubernetesSpec from "./spec/kubernetes.schema.json" with { type: "json" };
 
 import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
-import { expandMapping } from "./mapping.mjs";
+import { expandMapping, heldObject, objectKind, objectType } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
-import { SITES, configuredRows } from "./terraform.mjs";
+import { SITES, configuredRows, expressionSources } from "./terraform.mjs";
 
 /** A mapping, with every `like` resolved (see mapping.mjs). */
 const readMapping = (mapping) => expandMapping(structuredClone(mapping));
@@ -47,7 +48,10 @@ export const GOOGLE_SPEC = Object.freeze(structuredClone(googleSpec));
 validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC);
 export const KUBERNETES_MAPPING = Object.freeze(readMapping(kubernetesMapping));
 export const KUBERNETES_SPEC = Object.freeze(structuredClone(kubernetesSpec));
-validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC);
+// The objects a `kubernetes_manifest` holds are checked against Kubernetes'
+// own published schema, which the provider leaves to the API server.
+export const KUBERNETES_API_SPEC = Object.freeze(structuredClone(kubernetesApiSpec));
+validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_API_SPEC);
 
 /** Every mapping, with the source name its facts carry. */
 const MAPPINGS = [CLOUDFLARE_MAPPING, GOOGLE_MAPPING, KUBERNETES_MAPPING];
@@ -75,6 +79,52 @@ export const mappedType = (type) => {
 };
 /** Every `[type, entry]` across all mappings, in declaration order. */
 export const mappedEntries = () => MAPPINGS.flatMap((mapping) => Object.entries(mapping.types));
+
+/** True for a type that reads an object a resource holds whole (see mapping.mjs). */
+export const readsHeldObject = (type) => MAPPINGS.some((mapping) => objectKind(mapping, type)?.object !== undefined);
+
+/**
+ * The entry that reads a resource, and the resource as that entry reads it.
+ *
+ * Most resources are read as they are. A resource that holds an object of
+ * another API whole (a mapping's `objects`) is read as that object, by the
+ * entry for its kind: the type becomes `<resource type> <values of by>`, and
+ * the values and sensitivity markers become the object's. The address stays
+ * the resource's, so the configuration's references still find it.
+ *
+ * Returns `{ skipped }`, the name to count as not read, when no entry reads
+ * it: the resource type, or for a held object the type of its kind, so the
+ * report names the kind it did not read. An object whose kind cannot be read
+ * (absent, not text, or marked sensitive) is counted as the resource type
+ * with "(kind not stated)".
+ */
+export function entryFor(resource) {
+  for (const mapping of MAPPINGS) {
+    const object = heldObject(mapping, resource.type);
+    if (!object) continue;
+    const value = own(resource.values, object.attr);
+    const marker = own(resource.sensitive ?? {}, object.attr);
+    const unread = { skipped: `${resource.type} (kind not stated)` };
+    if (!value || typeof value !== "object" || Array.isArray(value)) return unread;
+    // The whole object marked sensitive, or a marker of any other shape: nothing in it is read.
+    if (marker !== undefined && marker !== false && (marker === null || typeof marker !== "object" || Array.isArray(marker))) return unread;
+    const values = [];
+    for (const field of object.by) {
+      const at = own(value, field);
+      if (typeof at !== "string" || !/^\S+$/.test(at) || isMarkedSensitive(marker?.[field])) return unread;
+      values.push(at);
+    }
+    const type = objectType(resource.type, values);
+    const entry = own(mapping.types, type);
+    if (!entry) return { skipped: type };
+    return {
+      entry,
+      resource: { ...resource, type, values: value, sensitive: marker && typeof marker === "object" ? marker : {}, heldIn: object.attr },
+    };
+  }
+  const entry = mappedType(resource.type);
+  return entry ? { entry, resource } : { skipped: resource.type };
+}
 /** Fact types that count as a Worker when a relation targets a Worker script. */
 const WORKER_FACT_TYPES = new Set([WORKER_TYPE, "wrangler_worker", "cloudflare_worker"]);
 /** Fact types whose NAME is the Worker's script name. */
@@ -91,11 +141,42 @@ const getPath = (obj, path) => path.split(".").reduce((o, k) => {
   return at && typeof at === "object" ? at[k] : undefined;
 }, obj);
 
+/**
+ * The sensitivity marker for the value at `path`, walked beside the value.
+ *
+ * A container the document marks whole (`true`) marks everything under it,
+ * so the walk stops there and returns `true`. Walking on, as `getPath` does
+ * for a value, would find no marker under a `true` and read the value as
+ * public. A single nested block's marker is a list of one, like its value; a
+ * marker list of any other length, or a marker of any other shape, is
+ * malformed and also returns `true`: fail closed.
+ */
+function markerAt(sensitive, path) {
+  let marker = sensitive;
+  for (const segment of path.split(".")) {
+    marker = unwrapMarker(marker);
+    if (marker === undefined) return undefined;
+    if (marker === true) return true;
+    marker = marker[segment];
+  }
+  return marker;
+}
+
+/** A marker with a list of one unwrapped: an object, `undefined` (nothing marked), or `true`. */
+function unwrapMarker(marker) {
+  if (marker === undefined || marker === false) return undefined;
+  if (Array.isArray(marker)) {
+    if (marker.length !== 1) return true;
+    return unwrapMarker(marker[0]);
+  }
+  return marker !== null && typeof marker === "object" ? marker : true;
+}
+
 function pickPath(values, sensitive, path) {
   const parts = path.split(".");
   const key = parts.pop();
   const v = parts.length ? single(getPath(values, parts.join("."))) : values;
-  const s = parts.length ? single(getPath(sensitive, parts.join("."))) : sensitive;
+  const s = parts.length ? unwrapMarker(markerAt(sensitive, parts.join("."))) : sensitive;
   return pickPublic(v, s, [key])[key];
 }
 
@@ -159,7 +240,12 @@ export function importResource(resource, entry, references, expressions) {
     if (withheld) attrs[`${key}Withheld`] = true;
     for (const { row, marker } of rows) {
       if (!row || typeof row !== "object") continue;
-      const picked = pickPublic(row, marker, list.read ?? []);
+      // A field may be a path through nested objects (`valueFrom.secretKeyRef.name`).
+      const picked = {};
+      for (const path of list.read ?? []) {
+        const value = pickPath(row, marker, path);
+        if (value !== undefined) picked[path] = value;
+      }
       for (const name of list.strings ?? []) {
         // A list of strings is read whole or not at all: any marker on it
         // other than "nothing here is sensitive" withholds it.
@@ -176,7 +262,7 @@ export function importResource(resource, entry, references, expressions) {
   for (const path of entry.maps ?? []) {
     const map = getPath(values, path);
     if (!map || typeof map !== "object" || Array.isArray(map)) continue;
-    if (isMarkedSensitive(getPath(sensitive, path))) continue;
+    if (isMarkedSensitive(markerAt(sensitive, path))) continue;
     const pairs = Object.entries(map).filter(([, v]) => typeof v === "string");
     if (pairs.length) (attrs.maps ??= {})[path] = Object.fromEntries(pairs);
   }
@@ -204,6 +290,14 @@ export function importResource(resource, entry, references, expressions) {
       if (rows.length) configured[list.path.split(".").pop()] = rows;
     }
     if (Object.keys(configured).length) attrs.configured = configured;
+  }
+  // An object held whole is one expression in the configuration, so where
+  // each of its values comes from is not written down. What the expression
+  // takes from at all is: the report needs it to know whether a value in the
+  // object is the source's own text (ADR-0073, amendment of 2026-11-23).
+  if (resource.heldIn !== undefined && expressions) {
+    const sources = expressionSources(expressions[resource.heldIn]);
+    if (sources) attrs.takenFrom = sources;
   }
   const named = entry.name === undefined ? undefined : pickPath(values, sensitive, entry.name);
   return makeFact({

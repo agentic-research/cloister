@@ -52,3 +52,38 @@ export function expandMapping(mapping) {
   }
   return { ...mapping, types: out };
 }
+
+// A resource may hold an object of another API whole, in one attribute the
+// provider leaves untyped (ADR-0073, amendment of 2026-11-23). A mapping
+// declares it under `objects`:
+//
+//   "objects": { "kubernetes_manifest": { "attr": "manifest", "by": ["apiVersion", "kind"] } }
+//
+// and describes each kind of object it reads as a type of its own, named by
+// the resource type and the values of `by`, with single spaces between:
+//
+//   "kubernetes_manifest apps/v1 Deployment": { "name": "metadata.name", ... }
+//
+// A type name never holds a space otherwise, so the two cannot be confused.
+
+/** The `objects` declaration for a resource type, or undefined. */
+export function heldObject(mapping, resourceType) {
+  const objects = mapping?.objects ?? {};
+  return typeof resourceType === "string" && Object.hasOwn(objects, resourceType) ? objects[resourceType] : undefined;
+}
+
+/** The type that reads an object of the kind `values` name, held by a resource of `resourceType`. */
+export const objectType = (resourceType, values) => [resourceType, ...values].join(" ");
+
+/**
+ * What a type that reads a held object names: the resource type that holds
+ * it, the declaration, and the kind (the values of `by`, joined by spaces).
+ * Undefined for a type that reads a resource directly. A spaced name whose
+ * first word is not a declared resource type is still reported, with no
+ * declaration, so the validator can refuse it by name.
+ */
+export function objectKind(mapping, type) {
+  if (typeof type !== "string" || !type.includes(" ")) return undefined;
+  const [resourceType, ...values] = type.split(" ");
+  return { resourceType, object: heldObject(mapping, resourceType), values, kind: values.join(" ") };
+}
