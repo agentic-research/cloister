@@ -8,6 +8,33 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — ley-line-open 0.31.0
+
+- Every LLO channel moves to v0.31.0 (`eb07092a`) in one step (`task llo:bump`):
+  - the Cargo pins and both lockfiles;
+  - the input in `cluster.toml` and `cluster.lock.toml`;
+  - the generator and wasm digests in `schema-bridge.lock.json`;
+  - the vendored spec files.
+- LLO's spec tree is byte-identical between the two releases. The vendored
+  files change only their source line, and the three hand-written copies of
+  `confinement/v1` move to 0.31.0 having been re-read against it.
+- **The worker and `leyline-runtime` move together.** The host runtime builds
+  against `leyline-runtime` 0.31.0, and `runtime install` fetches the 0.31.0
+  `leyline-krun-worker`. The worker now holds a lifeline to its host runtime:
+  when the host runtime ends, `SIGKILL` included, the worker exits and takes its
+  VM with it (ley-line-open-f963e6).
+- **Operators: re-run `cloister runtime install` after upgrading.** A runtime
+  installed before this keeps the old pair, whose VMs can outlive a killed host
+  runtime. `cluster up`'s messages and the docs now say which is which.
+- The generators' output changes one header line, and every generated file is
+  regenerated.
+- `task llo:bump` asks GitHub's REST API for the release and its assets,
+  instead of `gh release view` and `gh release download`, which go through
+  GraphQL. It hashes each download itself, and stops if that disagrees with the
+  digest the release lists.
+- LLO's daemon wire break (`wire_format_major` 3, positional `query` rows) does
+  not reach cloister, which does not read daemon query rows.
+
 ### 2026-11 — `cloister inspect` reads `kubernetes_manifest` (ADR-0073 amendment)
 
 - A workload written as `kubernetes_manifest` was not read at all. The report

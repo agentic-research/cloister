@@ -125,9 +125,11 @@ function resolveCommit(tag, lloRoot) {
  * tree is inconsistent in a way `task lint` will not notice until a regen.
  */
 function requireRelease(tag, families, wasm = []) {
+  // REST, not `gh release view`: the porcelain goes through GraphQL, which not
+  // every environment that can reach the REST API allows.
   let raw;
   try {
-    raw = sh("gh", ["release", "view", tag, "--repo", REPO, "--json", "assets,isDraft"]);
+    raw = sh("gh", ["api", `repos/${REPO}/releases/tags/${tag}`]);
   } catch {
     die(
       `no published release for ${tag}.\n` +
@@ -138,10 +140,10 @@ function requireRelease(tag, families, wasm = []) {
     );
   }
   const rel = JSON.parse(raw);
-  if (rel.isDraft) die(`release ${tag} is still a DRAFT — its assets are not downloadable.`);
-  const have = new Set((rel.assets ?? []).map((a) => a.name));
+  if (rel.draft) die(`release ${tag} is still a DRAFT — its assets are not downloadable.`);
+  const assets = new Map((rel.assets ?? []).map((a) => [a.name, { id: a.id, digest: a.digest ?? null }]));
   const want = [...families.flatMap(([f, plats]) => plats.map((p) => `${f}-${p}`)), ...wasm];
-  const missing = want.filter((n) => !have.has(n));
+  const missing = want.filter((n) => !assets.has(n));
   if (missing.length) {
     die(
       `release ${tag} exists but is missing ${missing.length} of ${want.length} ` +
@@ -149,36 +151,37 @@ function requireRelease(tag, families, wasm = []) {
       `  A build job likely failed. Do not bump against a partial release.`,
     );
   }
-  return want.length;
+  return { count: want.length, assets };
 }
 
-/** Download one release asset and hash it. */
-function assetDigest(tag, name) {
+/**
+ * Download one release asset over REST and hash it. The hash is ours, from the
+ * bytes; where GitHub lists the asset's digest too, the two must agree, or the
+ * bump stops rather than pin bytes nobody else would fetch.
+ */
+function assetDigest(assets, name) {
+  const asset = assets.get(name);
   const bytes = execFileSync("gh", [
-    "release", "download", tag, "--repo", REPO,
-    "--pattern", name, "--output", "-",
+    "api", "-H", "Accept: application/octet-stream", `repos/${REPO}/releases/assets/${asset.id}`,
   ], { maxBuffer: 256 * 1024 * 1024 });
-  return createHash("sha256").update(bytes).digest("hex");
+  const hex = createHash("sha256").update(bytes).digest("hex");
+  if (asset.digest && asset.digest !== `sha256:${hex}`) {
+    die(`${name}: the downloaded bytes hash to sha256:${hex}, but the release lists ${asset.digest}.`);
+  }
+  return hex;
 }
 
 /** Download each pinned wasm module and hash it. */
-function wasmDigests(tag, names) {
-  return Object.fromEntries(names.map((n) => [n, assetDigest(tag, n)]));
+function wasmDigests(assets, names) {
+  return Object.fromEntries(names.map((n) => [n, assetDigest(assets, n)]));
 }
 
 /** Download each pinned generator and hash it. */
-function generatorDigests(tag, families) {
+function generatorDigests(assets, families) {
   const out = {};
   for (const [fam, plats] of families) {
     out[fam] = {};
-    for (const plat of plats) {
-      const name = `${fam}-${plat}`;
-      const bytes = execFileSync("gh", [
-        "release", "download", tag, "--repo", REPO,
-        "--pattern", name, "--output", "-",
-      ], { maxBuffer: 256 * 1024 * 1024 });
-      out[fam][plat] = createHash("sha256").update(bytes).digest("hex");
-    }
+    for (const plat of plats) out[fam][plat] = assetDigest(assets, `${fam}-${plat}`);
   }
   return out;
 }
@@ -339,18 +342,18 @@ function main(argv) {
 
   process.stdout.write(`llo-bump: ${tag}\n`);
   const commit = resolveCommit(tag, lloRoot);
-  const assetCount = requireRelease(tag, families, wasmNames);
-  process.stdout.write(`  release OK — ${assetCount} pinned assets present\n`);
+  const release = requireRelease(tag, families, wasmNames);
+  process.stdout.write(`  release OK — ${release.count} pinned assets present\n`);
 
   // The channel list is the RAIL's, imported. See the header.
   const channels = upstreamChannels();
   const pins = collectLloPins();
   process.stdout.write(`  ${channels.length} channel(s) from lint:upstream-pins\n`);
 
-  const digests = generatorDigests(tag, families);
+  const digests = generatorDigests(release.assets, families);
   const n = writeCargo(pins, commit, version, dry);
   writeInput(commit, version, dry);
-  writeGeneratorLock(tag, digests, dry, wasmDigests(tag, wasmNames));
+  writeGeneratorLock(tag, digests, dry, wasmDigests(release.assets, wasmNames));
   // Needs only the checkout, so it is never skipped. It refuses unless the
   // checkout is at the tag being bumped to.
   const vendored = vendorLloSpecs(lloRoot, { tag, commit, dry });

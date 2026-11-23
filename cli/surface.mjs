@@ -304,8 +304,9 @@ export const COMMANDS = [
       "only), relayed to that socket once its bundle is bound; every edge port is bound " +
       "before anything starts, so a busy one is refused by name. Runs in the foreground; " +
       "SIGINT/SIGTERM/SIGHUP/SIGQUIT stops every run in reverse order; a second signal " +
-      "reports progress, a third SIGKILLs the host runtimes (their VMs may then outlive " +
-      "them until ley-line-open-f963e6). If `up` is killed, each host runtime stops on " +
+      "reports progress, a third SIGKILLs the host runtimes (a krun worker from LLO 0.31 " +
+      "or later exits with its host runtime; one installed before that can outlive it " +
+      "until `cloister runtime install` is re-run). If `up` is killed, each host runtime stops on " +
       "stdin EOF. If a run ends on its own, the rest " +
       "are stopped and the command exits non-zero, naming it. Kubernetes-placed bundles " +
       "are skipped (`cluster k8s`). Needs each bundle's rootfs imported for this host's " +
