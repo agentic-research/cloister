@@ -6,6 +6,7 @@
 
 import { validateAppProtocol } from "../app-protocol.mjs";
 import { FORWARDED_KINDS } from "../cluster/connections.mjs";
+import { objectKind } from "./mapping.mjs";
 
 const SCALARS = new Set(["string", "number", "bool"]);
 
@@ -16,7 +17,7 @@ function lookup(attributes, path, label) {
   const segments = path.split(".");
   for (const [i, segment] of segments.entries()) {
     entry = level?.[segment];
-    if (!entry) throw new Error(`mapping: unknown attribute "${label}${path}" (not in the provider spec)`);
+    if (!entry) throw new Error(`mapping: unknown attribute "${label}${path}" (not in the published schema)`);
     if (entry.sensitive) throw new Error(`mapping: sensitive attribute "${label}${path}" cannot be mapped`);
     if (i < segments.length - 1) {
       if (!entry.attributes) throw new Error(`mapping: "${label}${path}" is not a nested attribute`);
@@ -34,21 +35,67 @@ function scalar(attributes, path, label) {
   return entry;
 }
 
-/** Throws by name on the first violation. */
-export function validateMapping(mapping, spec) {
+/**
+ * Throws by name on the first violation.
+ *
+ * `objectSpec` is the projection of the published schema of the objects a
+ * resource holds whole (a mapping's `objects`; ADR-0073, amendment of
+ * 2026-11-23). A type that reads such an object is checked against it, and
+ * the declaration itself against the provider's schema: the attribute that
+ * holds the object must be one the provider leaves untyped.
+ */
+export function validateMapping(mapping, spec, objectSpec) {
   const resources = spec?.resources ?? {};
+  const objects = mapping.objects ?? {};
+  if (!isTable(objects)) throw new Error("mapping: \"objects\" must be a table");
+  for (const [type, object] of Object.entries(objects)) {
+    const where = `objects.${type}`;
+    if (!isTable(object)) throw new Error(`mapping: ${where} must be a table`);
+    onlyKeys(object, ["attr", "by"], where);
+    if (!isText(object.attr) || object.attr.includes(".")) throw new Error(`mapping: ${where} needs an "attr": the attribute that holds the object`);
+    if (!Array.isArray(object.by) || object.by.length === 0 || !object.by.every((f) => isText(f) && !/[\s.]/.test(f)) || new Set(object.by).size !== object.by.length) {
+      throw new Error(`mapping: ${where} "by" must list the object's fields that say what it is, each once`);
+    }
+    if (Object.hasOwn(mapping.types ?? {}, type)) throw new Error(`mapping: ${type} is read as the objects it holds, and cannot also be a type`);
+    if (!resources[type]) throw new Error(`mapping: unknown resource type "${type}" (${where}, not in the provider spec)`);
+    const held = lookup(resources[type].attributes, object.attr, `${type}.`);
+    if (held.type !== "dynamic") throw new Error(`mapping: ${type}.${object.attr} is typed by the provider; map its paths, not an object`);
+  }
   const attrsOf = (type, where) => {
+    const held = objectKind(mapping, type);
+    if (held) {
+      if (!held.object) throw new Error(`mapping: type "${type}" names "${held.resourceType}", which the mapping does not declare under "objects"`);
+      if (held.values.length !== held.object.by.length || held.values.some((v) => v === "")) {
+        throw new Error(`mapping: type "${type}" must name ${held.resourceType} and its ${held.object.by.join(" and ")}, one space apart`);
+      }
+      const found = objectSpec?.objects?.[held.kind];
+      if (!found) throw new Error(`mapping: type "${type}" reads a kind, ${held.kind}, that the ${objectSpec?.api ?? "object"} spec does not define`);
+      return found.attributes;
+    }
     if (!resources[type]) throw new Error(`mapping: unknown resource type "${type}" (${where})`);
     return resources[type].attributes;
   };
   for (const [type, entry] of Object.entries(mapping.types ?? {})) {
     const attributes = attrsOf(type, "not in the provider spec");
+    const held = objectKind(mapping, type);
     const here = `${type}.`;
     if (entry.name !== undefined) scalar(attributes, entry.name, here);
     for (const path of [...(entry.read ?? []), ...(entry.ids ?? [])]) scalar(attributes, path, here);
     // A reference attribute only has to exist (and not be sensitive): it is
     // whatever the configuration wires into it, and only its references are read.
-    for (const path of entry.referenceAttrs ?? []) lookup(attributes, path, `${here}referenceAttrs.`);
+    // An object held whole is one expression in the configuration. Where in
+    // it a reference sits, and which row a value came from, is not written,
+    // so neither its references nor its rows are read from there.
+    if (held) {
+      if (entry.referenceAttrs !== undefined) {
+        throw new Error(`mapping: ${here}referenceAttrs: an object held whole is one expression, and where a reference sits in it is not written`);
+      }
+      if (entry.configLists !== undefined) {
+        throw new Error(`mapping: ${here}configLists: an object held whole has no rows in the configuration; read its rows with "lists"`);
+      }
+    } else {
+      for (const path of entry.referenceAttrs ?? []) lookup(attributes, path, `${here}referenceAttrs.`);
+    }
     // A configured list is read from the plan's configuration: the same
     // block, as the source wrote it. Every field must be a scalar the
     // provider does not mark sensitive, so a constant copied from it is one
@@ -262,17 +309,32 @@ function checkReport(type, entry, types = {}) {
           throw new Error(`mapping: ${where} ${key} needs a "list" the entry reads and a "strings" attribute it reads from it`);
         }
       }
+      // `env`: where a workload's environment is read. From the
+      // configuration (`configured`, a configList) where the source has rows;
+      // from the values (`list`, a list the entry reads) where it does not:
+      // an object held whole is one expression.
       if (bundle.env !== undefined) {
         const { env } = bundle;
-        onlyKeys(env, ["configured", "name", "value", "secret", "secretVersion"], `${where} env`);
-        const configured = (entry.configLists ?? []).find((list) => list.path.split(".").pop() === env.configured);
-        if (!isTable(env) || !configured) throw new Error(`mapping: ${where} env needs a "configured" list the entry declares in configLists`);
+        if (!isTable(env)) throw new Error(`mapping: ${where} env must be a table`);
+        onlyKeys(env, ["configured", "list", "name", "value", "secret", "secretVersion"], `${where} env`);
+        if ((env.configured === undefined) === (env.list === undefined)) {
+          throw new Error(`mapping: ${where} env needs exactly one of "configured" (a configList) or "list" (a list the entry reads)`);
+        }
+        let fields;
+        if (env.configured !== undefined) {
+          const configured = (entry.configLists ?? []).find((list) => list.path.split(".").pop() === env.configured);
+          if (!configured) throw new Error(`mapping: ${where} env needs a "configured" list the entry declares in configLists`);
+          fields = { of: `configured list "${env.configured}"`, names: configured.fields };
+        } else {
+          if (!lists.has(env.list)) throw new Error(`mapping: ${where} env "list" must be a list the entry reads`);
+          fields = { of: `list "${env.list}"`, names: lists.get(env.list).read ?? [] };
+        }
         for (const key of ["name", "value", "secret", "secretVersion"]) {
           if (key === "name" || key === "value" ? !isText(env[key]) : env[key] !== undefined && !isText(env[key])) {
             throw new Error(`mapping: ${where} env needs "name" and "value" fields`);
           }
-          if (env[key] !== undefined && !configured.fields.includes(env[key])) {
-            throw new Error(`mapping: ${where} env ${key} "${env[key]}" is not a field of configured list "${env.configured}"`);
+          if (env[key] !== undefined && !fields.names.includes(env[key])) {
+            throw new Error(`mapping: ${where} env ${key} "${env[key]}" is not a field of ${fields.of}`);
           }
         }
       }

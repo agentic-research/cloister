@@ -128,8 +128,9 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
       if (kind !== localKind) notes.push(`"${w.name}": runs to completion, so it is placed "kubernetes" for "${local}", not "${localKind}"`);
     }
     // Env rows are read from the configuration when there is one (a plan). A
-    // state document has none, and its planned env may be withheld.
-    if (run.env === null && w.withheld.length) {
+    // state document has none, and its planned env may be withheld. Rows read
+    // from the values (an object held whole) miss whatever is withheld.
+    if ((run.env === null || run.envFromValues) && w.withheld.length) {
       const one = w.withheld.length === 1;
       notes.push(`"${w.name}": its ${w.withheld.join(" and ")} ${one ? "is" : "are"} marked sensitive and ${one ? "was" : "were"} not read; an edge that is only in ${one ? "it" : "them"} is missing below`);
     }
@@ -180,6 +181,8 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
         }
       } else if (entry.kind === "secret") {
         rows.push({ name: entry.name, secret: entry.secret, ...(entry.version ? { secretKey: entry.version } : {}) });
+      } else if (entry.inObject) {
+        notes.push(`"${w.name}": env ${entry.name} is not drafted: its value is written in an object that takes values from ${entry.from.length ? entry.from.join(", ") : "something these inputs do not show"}, and the configuration does not say which of them, if any, it came from`);
       } else {
         notes.push(`"${w.name}": env ${entry.name} is not drafted: it is taken from ${entry.from.length ? entry.from.join(", ") : "something the configuration does not name"}, which these inputs do not resolve`);
       }

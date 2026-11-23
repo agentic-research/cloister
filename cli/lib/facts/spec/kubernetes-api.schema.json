@@ -1,0 +1,1929 @@
+{
+  "api": "kubernetes",
+  "objects": {
+    "apps/v1 DaemonSet": {
+      "attributes": {
+        "apiVersion": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "kind": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "creationTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "deletionGracePeriodSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "deletionTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "finalizers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "generateName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resourceVersion": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selfLink": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "spec": {
+          "attributes": {
+            "minReadySeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "revisionHistoryLimit": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "template": {
+              "attributes": {
+                "metadata": {
+                  "attributes": {
+                    "annotations": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "creationTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "deletionGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "deletionTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "finalizers": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "generateName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "generation": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "labels": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "resourceVersion": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "selfLink": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "spec": {
+                  "attributes": {
+                    "activeDeadlineSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "automountServiceAccountToken": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "containers": {
+                      "attributes": {
+                        "args": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "command": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "env": {
+                          "attributes": {
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "value": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "valueFrom": {
+                              "attributes": {
+                                "secretKeyRef": {
+                                  "attributes": {
+                                    "key": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "optional": {
+                                      "sensitive": false,
+                                      "type": "bool"
+                                    }
+                                  },
+                                  "nesting_mode": "single",
+                                  "sensitive": false
+                                }
+                              },
+                              "nesting_mode": "single",
+                              "sensitive": false
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "image": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "imagePullPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "ports": {
+                          "attributes": {
+                            "containerPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "hostIP": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "hostPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "sensitive": false,
+                              "type": "string"
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "restartPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "stdin": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "stdinOnce": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "terminationMessagePath": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "terminationMessagePolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "tty": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "workingDir": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    },
+                    "dnsPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "enableServiceLinks": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostIPC": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostNetwork": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostPID": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostUsers": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostname": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "hostnameOverride": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeSelector": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "overhead": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "dynamic"
+                      ]
+                    },
+                    "preemptionPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "priorityClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "restartPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "runtimeClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "schedulerName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccount": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccountName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "setHostnameAsFQDN": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "shareProcessNamespace": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "subdomain": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "terminationGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        }
+      }
+    },
+    "apps/v1 Deployment": {
+      "attributes": {
+        "apiVersion": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "kind": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "creationTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "deletionGracePeriodSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "deletionTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "finalizers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "generateName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resourceVersion": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selfLink": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "spec": {
+          "attributes": {
+            "minReadySeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "paused": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "progressDeadlineSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "replicas": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "revisionHistoryLimit": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "template": {
+              "attributes": {
+                "metadata": {
+                  "attributes": {
+                    "annotations": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "creationTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "deletionGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "deletionTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "finalizers": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "generateName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "generation": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "labels": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "resourceVersion": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "selfLink": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "spec": {
+                  "attributes": {
+                    "activeDeadlineSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "automountServiceAccountToken": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "containers": {
+                      "attributes": {
+                        "args": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "command": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "env": {
+                          "attributes": {
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "value": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "valueFrom": {
+                              "attributes": {
+                                "secretKeyRef": {
+                                  "attributes": {
+                                    "key": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "optional": {
+                                      "sensitive": false,
+                                      "type": "bool"
+                                    }
+                                  },
+                                  "nesting_mode": "single",
+                                  "sensitive": false
+                                }
+                              },
+                              "nesting_mode": "single",
+                              "sensitive": false
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "image": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "imagePullPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "ports": {
+                          "attributes": {
+                            "containerPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "hostIP": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "hostPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "sensitive": false,
+                              "type": "string"
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "restartPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "stdin": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "stdinOnce": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "terminationMessagePath": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "terminationMessagePolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "tty": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "workingDir": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    },
+                    "dnsPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "enableServiceLinks": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostIPC": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostNetwork": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostPID": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostUsers": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostname": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "hostnameOverride": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeSelector": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "overhead": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "dynamic"
+                      ]
+                    },
+                    "preemptionPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "priorityClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "restartPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "runtimeClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "schedulerName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccount": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccountName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "setHostnameAsFQDN": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "shareProcessNamespace": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "subdomain": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "terminationGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        }
+      }
+    },
+    "apps/v1 StatefulSet": {
+      "attributes": {
+        "apiVersion": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "kind": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "creationTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "deletionGracePeriodSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "deletionTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "finalizers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "generateName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resourceVersion": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selfLink": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "spec": {
+          "attributes": {
+            "minReadySeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "podManagementPolicy": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "replicas": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "revisionHistoryLimit": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "serviceName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "template": {
+              "attributes": {
+                "metadata": {
+                  "attributes": {
+                    "annotations": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "creationTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "deletionGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "deletionTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "finalizers": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "generateName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "generation": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "labels": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "resourceVersion": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "selfLink": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "spec": {
+                  "attributes": {
+                    "activeDeadlineSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "automountServiceAccountToken": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "containers": {
+                      "attributes": {
+                        "args": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "command": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "env": {
+                          "attributes": {
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "value": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "valueFrom": {
+                              "attributes": {
+                                "secretKeyRef": {
+                                  "attributes": {
+                                    "key": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "optional": {
+                                      "sensitive": false,
+                                      "type": "bool"
+                                    }
+                                  },
+                                  "nesting_mode": "single",
+                                  "sensitive": false
+                                }
+                              },
+                              "nesting_mode": "single",
+                              "sensitive": false
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "image": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "imagePullPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "ports": {
+                          "attributes": {
+                            "containerPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "hostIP": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "hostPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "sensitive": false,
+                              "type": "string"
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "restartPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "stdin": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "stdinOnce": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "terminationMessagePath": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "terminationMessagePolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "tty": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "workingDir": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    },
+                    "dnsPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "enableServiceLinks": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostIPC": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostNetwork": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostPID": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostUsers": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostname": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "hostnameOverride": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeSelector": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "overhead": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "dynamic"
+                      ]
+                    },
+                    "preemptionPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "priorityClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "restartPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "runtimeClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "schedulerName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccount": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccountName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "setHostnameAsFQDN": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "shareProcessNamespace": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "subdomain": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "terminationGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        }
+      }
+    },
+    "batch/v1 Job": {
+      "attributes": {
+        "apiVersion": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "kind": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "creationTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "deletionGracePeriodSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "deletionTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "finalizers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "generateName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resourceVersion": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selfLink": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "spec": {
+          "attributes": {
+            "activeDeadlineSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "backoffLimit": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "backoffLimitPerIndex": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "completionMode": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "completions": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "managedBy": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "manualSelector": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "maxFailedIndexes": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "parallelism": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "podReplacementPolicy": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "suspend": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "template": {
+              "attributes": {
+                "metadata": {
+                  "attributes": {
+                    "annotations": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "creationTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "deletionGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "deletionTimestamp": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "finalizers": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "generateName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "generation": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "labels": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "resourceVersion": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "selfLink": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "uid": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                },
+                "spec": {
+                  "attributes": {
+                    "activeDeadlineSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "automountServiceAccountToken": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "containers": {
+                      "attributes": {
+                        "args": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "command": {
+                          "sensitive": false,
+                          "type": [
+                            "list",
+                            "string"
+                          ]
+                        },
+                        "env": {
+                          "attributes": {
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "value": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "valueFrom": {
+                              "attributes": {
+                                "secretKeyRef": {
+                                  "attributes": {
+                                    "key": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "name": {
+                                      "sensitive": false,
+                                      "type": "string"
+                                    },
+                                    "optional": {
+                                      "sensitive": false,
+                                      "type": "bool"
+                                    }
+                                  },
+                                  "nesting_mode": "single",
+                                  "sensitive": false
+                                }
+                              },
+                              "nesting_mode": "single",
+                              "sensitive": false
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "image": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "imagePullPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "ports": {
+                          "attributes": {
+                            "containerPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "hostIP": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "hostPort": {
+                              "sensitive": false,
+                              "type": "number"
+                            },
+                            "name": {
+                              "sensitive": false,
+                              "type": "string"
+                            },
+                            "protocol": {
+                              "sensitive": false,
+                              "type": "string"
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        },
+                        "restartPolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "stdin": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "stdinOnce": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "terminationMessagePath": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "terminationMessagePolicy": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "tty": {
+                          "sensitive": false,
+                          "type": "bool"
+                        },
+                        "workingDir": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    },
+                    "dnsPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "enableServiceLinks": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostIPC": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostNetwork": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostPID": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostUsers": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "hostname": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "hostnameOverride": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "nodeSelector": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "string"
+                      ]
+                    },
+                    "overhead": {
+                      "sensitive": false,
+                      "type": [
+                        "map",
+                        "dynamic"
+                      ]
+                    },
+                    "preemptionPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "priority": {
+                      "sensitive": false,
+                      "type": "number"
+                    },
+                    "priorityClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "restartPolicy": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "runtimeClassName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "schedulerName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccount": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "serviceAccountName": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "setHostnameAsFQDN": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "shareProcessNamespace": {
+                      "sensitive": false,
+                      "type": "bool"
+                    },
+                    "subdomain": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "terminationGracePeriodSeconds": {
+                      "sensitive": false,
+                      "type": "number"
+                    }
+                  },
+                  "nesting_mode": "single",
+                  "sensitive": false
+                }
+              },
+              "nesting_mode": "single",
+              "sensitive": false
+            },
+            "ttlSecondsAfterFinished": {
+              "sensitive": false,
+              "type": "number"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        }
+      }
+    },
+    "v1 Namespace": {
+      "attributes": {
+        "apiVersion": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "kind": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "creationTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "deletionGracePeriodSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "deletionTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "finalizers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "generateName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resourceVersion": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selfLink": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        }
+      }
+    },
+    "v1 Service": {
+      "attributes": {
+        "apiVersion": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "kind": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "creationTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "deletionGracePeriodSeconds": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "deletionTimestamp": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "finalizers": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "generateName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "name": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resourceVersion": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "selfLink": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        },
+        "spec": {
+          "attributes": {
+            "allocateLoadBalancerNodePorts": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "clusterIP": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "clusterIPs": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "externalIPs": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "externalName": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "externalTrafficPolicy": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "healthCheckNodePort": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "internalTrafficPolicy": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "ipFamilies": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "ipFamilyPolicy": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "loadBalancerClass": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "loadBalancerIP": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "loadBalancerSourceRanges": {
+              "sensitive": false,
+              "type": [
+                "list",
+                "string"
+              ]
+            },
+            "publishNotReadyAddresses": {
+              "sensitive": false,
+              "type": "bool"
+            },
+            "selector": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "sessionAffinity": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "trafficDistribution": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "type": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "single",
+          "sensitive": false
+        }
+      }
+    }
+  },
+  "version": "1.37.0"
+}

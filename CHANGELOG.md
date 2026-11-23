@@ -8,6 +8,26 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister inspect` reads `kubernetes_manifest` (ADR-0073 amendment)
+
+- A workload written as `kubernetes_manifest` was not read at all. The report
+  counted it under "Not read", a connection declared for it was reported
+  `unknown`, and one it made that nobody declared could not be seen. A
+  Deployment, StatefulSet, DaemonSet, Job, Service or Namespace written that
+  way is now read like the provider's typed resource. A test rewrites the
+  whole Kubernetes plan as manifests and gets the same report and findings.
+- The kinds are mapping entries, checked against Kubernetes' published OpenAPI
+  schema (1.37.0), projected by `gen/facts-spec.mjs --api` and reproducible
+  byte for byte. A mapping declares the resource under `objects`.
+- A kind no entry reads is named on the "Not read" line
+  (`kubernetes_manifest networking.k8s.io/v1 Ingress`).
+- Nothing is guessed from a manifest's configuration, which is one expression
+  for the whole object. Its references are not read as edges. An env value is
+  drafted as a constant only when the expression takes from nothing; otherwise
+  it is unknown, named with what the expression takes from.
+- A sensitivity marker on a parent block now covers everything under it, for
+  every mapping. Before, a value two levels under a marked block read as public.
+
 ### 2026-11 — a token is minted only for a lease holder, in that holder's name (ADR-0086)
 
 - `POST /oauth/token` requires a lease, always, dev mode included. Its tenant

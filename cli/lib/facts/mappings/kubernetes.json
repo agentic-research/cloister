@@ -1,5 +1,14 @@
 {
   "provider": "hashicorp/kubernetes",
+  "objects": {
+    "kubernetes_manifest": {
+      "attr": "manifest",
+      "by": [
+        "apiVersion",
+        "kind"
+      ]
+    }
+  },
   "types": {
     "kubernetes_deployment_v1": {
       "name": "metadata.name",
@@ -186,7 +195,10 @@
             "kubernetes_stateful_set_v1",
             "kubernetes_stateful_set",
             "kubernetes_daemon_set_v1",
-            "kubernetes_daemonset"
+            "kubernetes_daemonset",
+            "kubernetes_manifest apps/v1 Deployment",
+            "kubernetes_manifest apps/v1 StatefulSet",
+            "kubernetes_manifest apps/v1 DaemonSet"
           ],
           "scope": [
             "metadata.namespace"
@@ -205,6 +217,130 @@
       }
     },
     "kubernetes_namespace": {
+      "like": "kubernetes_namespace_v1"
+    },
+    "kubernetes_manifest apps/v1 Deployment": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "maps": [
+        "spec.template.metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.containers",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.containers.env",
+          "read": [
+            "name",
+            "value",
+            "valueFrom.secretKeyRef.name",
+            "valueFrom.secretKeyRef.key"
+          ]
+        },
+        {
+          "path": "spec.template.spec.containers.ports",
+          "read": [
+            "name",
+            "containerPort"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Kubernetes deployments",
+        "show": [
+          "metadata.namespace"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "containers",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "containers",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "bundle": {
+          "placement": "kubernetes",
+          "runs": "service",
+          "image": {
+            "list": "containers",
+            "value": "image"
+          },
+          "args": {
+            "list": "containers",
+            "strings": "args"
+          },
+          "command": {
+            "list": "containers",
+            "strings": "command"
+          },
+          "env": {
+            "list": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "valueFrom.secretKeyRef.name",
+            "secretVersion": "valueFrom.secretKeyRef.key"
+          },
+          "ports": {
+            "list": "ports",
+            "name": "name",
+            "port": "containerPort",
+            "byConvention": true
+          },
+          "wires": {
+            "http": "art.http",
+            "http1": "art.http",
+            "h2c": "art.http2",
+            "grpc": "art.grpc"
+          }
+        }
+      }
+    },
+    "kubernetes_manifest apps/v1 StatefulSet": {
+      "like": "kubernetes_manifest apps/v1 Deployment",
+      "report": {
+        "section": "Kubernetes stateful sets"
+      }
+    },
+    "kubernetes_manifest apps/v1 DaemonSet": {
+      "like": "kubernetes_manifest apps/v1 Deployment",
+      "report": {
+        "section": "Kubernetes daemon sets"
+      }
+    },
+    "kubernetes_manifest batch/v1 Job": {
+      "like": "kubernetes_manifest apps/v1 Deployment",
+      "report": {
+        "section": "Kubernetes jobs",
+        "bundle": {
+          "runs": "job"
+        }
+      }
+    },
+    "kubernetes_manifest v1 Service": {
+      "like": "kubernetes_service_v1"
+    },
+    "kubernetes_manifest v1 Namespace": {
       "like": "kubernetes_namespace_v1"
     }
   }

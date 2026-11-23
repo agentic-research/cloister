@@ -87,6 +87,22 @@ function configuredField(expression) {
 }
 
 /**
+ * What one attribute's whole expression takes its value from: the managed
+ * resources it references, and anything else it names (a variable, a local,
+ * a data source). Both empty means the value is written in the source: its
+ * literals, and files read from the module. Undefined when the configuration
+ * has no expression for it, so nothing is known.
+ */
+export function expressionSources(expression) {
+  if (!expression || typeof expression !== "object" || Array.isArray(expression)) return undefined;
+  const named = Array.isArray(expression.references) ? expression.references.filter((r) => typeof r === "string") : [];
+  return {
+    references: resourceReferences(named),
+    unresolved: [...new Set(named.filter((r) => NOT_A_RESOURCE.some((p) => r.startsWith(p))))].sort(),
+  };
+}
+
+/**
  * The rows of the nested block list at `path` in a resource's configuration,
  * each reduced to the named `fields`. A field is a dotted path through single
  * nested blocks (`value_source.secret_key_ref.secret`).

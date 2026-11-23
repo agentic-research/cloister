@@ -168,7 +168,11 @@ function bundleOf(fact, rule, facts, withRun, addressed) {
   // What it is started with is read only when a caller is going to write a
   // manifest from it. The report never carries it: an argument or an env value
   // may hold an address or worse, and the report is printed.
-  if (withRun) bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts, addressed) };
+  if (withRun) {
+    bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts, addressed) };
+    // Read from the values, a list the document withholds is missing here.
+    if (rule.env?.list !== undefined) bundle.run.envFromValues = true;
+  }
   return bundle;
 }
 
@@ -221,6 +225,7 @@ function addressedBy(value, fact, facts, addressed) {
 }
 
 function envOf(fact, rule, facts, addressed = new Map()) {
+  if (rule?.list !== undefined) return valueEnvOf(fact, rule, facts, addressed);
   const rows = rule ? fact.attrs.configured?.[rule.configured] : undefined;
   if (!rows) return null;
   const out = [];
@@ -250,6 +255,56 @@ function envOf(fact, rule, facts, addressed = new Map()) {
     } else {
       out.push({ name, kind: "unknown", from: [] });
     }
+  }
+  return out;
+}
+
+/**
+ * Env rows read from the values, where the configuration has no rows to read:
+ * an object held whole is one expression (ADR-0073, amendment of 2026-11-23).
+ *
+ * A value here is what the document says will be applied. The configuration
+ * says what the object's expression takes from, but not which value took
+ * what. So a value is drafted as a constant only when the expression takes
+ * from nothing: every value in the object is then the source's own text.
+ * Otherwise, or when the document has no configuration for it (a state, a
+ * child module), the value is unknown, named with everything the expression
+ * takes from. A secret reference names a Secret, and a value that is one
+ * workload's whole address is that address: each is what it is, wherever
+ * the value came from.
+ */
+function valueEnvOf(fact, rule, facts, addressed) {
+  const rows = fact.attrs[rule.list];
+  if (!Array.isArray(rows)) return null;
+  const takenFrom = fact.attrs.takenFrom;
+  const asWritten = takenFrom !== undefined && takenFrom.references.length === 0 && takenFrom.unresolved.length === 0;
+  const from = takenFrom ? [...takenFrom.references, ...takenFrom.unresolved] : [];
+  const out = [];
+  for (const row of rows) {
+    const name = row[rule.name];
+    if (typeof name !== "string" || name === "") continue;
+    const secret = rule.secret ? row[rule.secret] : undefined;
+    const value = row[rule.value];
+    if (typeof secret === "string" && secret !== "") {
+      const version = rule.secretVersion ? row[rule.secretVersion] : undefined;
+      out.push({ name, kind: "secret", secret, version: typeof version === "string" ? version : "" });
+      continue;
+    }
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      const dialled = addressedBy(String(value), fact, facts, addressed);
+      if (dialled) {
+        out.push({ name, kind: "workload", to: dialled.target.name, section: mappedType(dialled.target.type).report.section, path: dialled.path });
+        continue;
+      }
+      if (asWritten) {
+        out.push({ name, kind: "constant", value: String(value) });
+        continue;
+      }
+      // There is a value, and where it came from is not written down.
+      out.push({ name, kind: "unknown", from, inObject: true });
+      continue;
+    }
+    out.push({ name, kind: "unknown", from: [] });
   }
   return out;
 }

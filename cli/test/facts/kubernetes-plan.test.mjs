@@ -17,7 +17,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { emitK8sDir, graphDir, lowerDir } from "../../commands/cluster.mjs";
-import { KUBERNETES_MAPPING, KUBERNETES_SPEC } from "../../lib/facts/cloudflare.mjs";
+import { KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_SPEC, readsHeldObject } from "../../lib/facts/cloudflare.mjs";
 import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
 import { buildReport, sectionsOf } from "../../lib/facts/report.mjs";
@@ -184,8 +184,8 @@ const withService = (change) => {
   return mapping;
 };
 
-test("the shipped mapping follows the provider's schema", () => {
-  assert.doesNotThrow(() => validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC));
+test("the shipped mapping follows the provider's schema, and Kubernetes' for the objects a manifest holds", () => {
+  assert.doesNotThrow(() => validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_API_SPEC));
 });
 
 for (const [what, change, message] of [
@@ -199,14 +199,15 @@ for (const [what, change, message] of [
   ["an unknown key on standsFor", (s) => { s.report.standsFor.guess = true; }, /standsFor has unknown key "guess"/],
 ]) {
   test(`the mapping validator refuses ${what}`, () => {
-    assert.throws(() => validateMapping(withService(change), KUBERNETES_SPEC), message);
+    assert.throws(() => validateMapping(withService(change), KUBERNETES_SPEC, KUBERNETES_API_SPEC), message);
   });
 }
 
 test("no reader names a Kubernetes resource type: the mapping is the only place", () => {
+  const named = [...Object.keys(KUBERNETES_MAPPING.types), ...Object.keys(KUBERNETES_MAPPING.objects)];
   for (const file of ["report.mjs", "draft.mjs", "terraform.mjs", "facts.mjs", "import.mjs", "validate.mjs"]) {
     const source = readFileSync(here(`../../lib/facts/${file}`), "utf8");
-    for (const type of Object.keys(KUBERNETES_MAPPING.types)) assert.ok(!source.includes(type), `${file} names ${type}`);
+    for (const type of named) assert.ok(!source.includes(type), `${file} names ${type}`);
   }
 });
 
@@ -214,17 +215,23 @@ test("no reader names a Kubernetes resource type: the mapping is the only place"
 
 const RAW = JSON.parse(readFileSync(here("../../lib/facts/mappings/kubernetes.json"), "utf8"));
 const likeOf = (type) => RAW.types[type].like ?? type;
-const WORKLOAD_TYPES = Object.keys(KUBERNETES_MAPPING.types).filter((type) => KUBERNETES_MAPPING.types[type].report?.bundle);
+const ALL_WORKLOAD_TYPES = Object.keys(KUBERNETES_MAPPING.types).filter((type) => KUBERNETES_MAPPING.types[type].report?.bundle);
+// The provider's own types. A kind of object a manifest holds is read from a
+// differently shaped document, and is run in kubernetes-manifest.test.mjs.
+const WORKLOAD_TYPES = ALL_WORKLOAD_TYPES.filter((type) => !readsHeldObject(type));
 
-test("the pod template is written out once, and every other workload type refers to it", () => {
-  const written = WORKLOAD_TYPES.filter((type) => RAW.types[type].like === undefined);
-  assert.deepEqual(written, ["kubernetes_deployment_v1"]);
-  for (const type of WORKLOAD_TYPES) {
-    if (type === "kubernetes_deployment_v1") continue;
+// The provider names a pod template's fields one way and Kubernetes another
+// (`container`, `containers`), so it is written out once per shape.
+test("the pod template is written out once per shape, and every other workload type refers to it", () => {
+  const written = ALL_WORKLOAD_TYPES.filter((type) => RAW.types[type].like === undefined);
+  assert.deepEqual(written, ["kubernetes_deployment_v1", "kubernetes_manifest apps/v1 Deployment"]);
+  for (const type of ALL_WORKLOAD_TYPES) {
+    if (written.includes(type)) continue;
+    const base = written[readsHeldObject(type) ? 1 : 0];
     // What a type may say for itself is its section and whether it runs to
     // completion. How a pod template is read is not restated anywhere.
     const { like, report, ...rest } = RAW.types[type];
-    assert.equal(like, "kubernetes_deployment_v1", type);
+    assert.equal(like, base, type);
     assert.deepEqual(rest, {}, `${type} restates more than its report`);
     // The second name of the same type says nothing for itself at all.
     const { section, bundle, ...other } = report ?? {};
@@ -315,7 +322,7 @@ test("a type that is like another is still held to its own schema", () => {
   // valid for the entry it is like must still be refused for the Job.
   const mapping = structuredClone(KUBERNETES_MAPPING);
   mapping.types.kubernetes_job_v1.read = [...mapping.types.kubernetes_job_v1.read, "spec.min_ready_seconds"];
-  assert.throws(() => validateMapping(mapping, KUBERNETES_SPEC), /unknown attribute "kubernetes_job_v1\.spec\.min_ready_seconds"/);
+  assert.throws(() => validateMapping(mapping, KUBERNETES_SPEC, KUBERNETES_API_SPEC), /unknown attribute "kubernetes_job_v1\.spec\.min_ready_seconds"/);
 });
 
 // ── a bundle called something else where it is deployed (ADR-0074 §4) ────────
