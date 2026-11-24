@@ -88,8 +88,8 @@ so instead of guessing.
 
 What it reads today: Google (Cloud Run and the like), Cloudflare and
 Kubernetes resources (the provider's typed resources, and Deployments,
-StatefulSets, DaemonSets, Jobs, Services and Namespaces written as
-`kubernetes_manifest`), and `wrangler.toml` with `--wrangler`. Anything else
+StatefulSets, DaemonSets, Jobs, Services, Namespaces and Knative Services
+written as `kubernetes_manifest`), and `wrangler.toml` with `--wrangler`. Anything else
 is named on the report's "Not read" line.
 
 ## In CI

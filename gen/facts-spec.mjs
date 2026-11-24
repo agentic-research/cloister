@@ -23,9 +23,31 @@
 //
 // (Kubernetes publishes them in its repository at api/openapi-spec/v3/, at
 // each release tag.)
+//
+// A custom resource is described by its CustomResourceDefinition instead: a
+// YAML input is read as one, and its schema (`openAPIV3Schema`) is projected.
+// A CRD cannot describe `metadata`, which every Kubernetes object has as the
+// API server's ObjectMeta, so `--metadata` names a Kubernetes OpenAPI v3
+// document that defines ObjectMeta, and that is what is projected for it:
+//
+//   node gen/facts-spec.mjs --api knative-serving --version 1.24.0 \
+//     --mapping cli/lib/facts/mappings/kubernetes.json \
+//     --out cli/lib/facts/spec/knative-serving.schema.json \
+//     --metadata api__v1_openapi.json --metadata-version 1.37.0 service.yaml
+//
+// Kubernetes' documents state no version of their own ("unversioned"), so the
+// release ObjectMeta came from is given, and recorded as `objectMeta`.
+//
+// (Knative publishes the Service CRD at config/core/300-resources/service.yaml
+// in knative/serving, at each release tag.)
+//
+// Each projection holds the kinds of the mapping its inputs define. Every kind
+// the mapping reads must be in exactly one projection: the validator checks
+// that when the mapping is loaded.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { parseAllDocuments } from "yaml";
 
 import { expandMapping, objectKind } from "../cli/lib/facts/mapping.mjs";
 
@@ -201,20 +223,41 @@ function projectObject(schema, document, paths) {
 /** `apiVersion` as an object states it: `<group>/<version>`, or `<version>` for the core group. */
 const apiVersionOf = ({ group, version }) => (group ? `${group}/${version}` : version);
 
+/** Where Kubernetes' OpenAPI documents define every object's metadata. */
+const OBJECT_META = "io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta";
+
 /**
- * Project an API's OpenAPI v3 documents to the kinds of object a mapping reads
- * from the resources that hold them. A kind is found by the group, version
+ * Project an API's published schema to the kinds of object a mapping reads
+ * from the resources that hold them.
+ *
+ * `documents` are OpenAPI v3 documents: a kind is found by the group, version
  * and kind each schema declares (`x-kubernetes-group-version-kind`), never by
- * its name. A kind the documents do not define, or define twice, stops it.
+ * its name. `crds` are CustomResourceDefinitions: each served version of one
+ * is a kind, `<group>/<version> <kind>`, described by its `openAPIV3Schema`,
+ * with `metadata` taken from ObjectMeta in the `metadata` document.
+ *
+ * Only the kinds these inputs define are projected, and they must define at
+ * least one. A kind defined two different ways stops it.
  */
-export function projectObjectSpec(documents, { api, version }, mapping) {
+export function projectObjectSpec(documents, { api, version, crds = [], metadata, metadataVersion }, mapping) {
   const kinds = new Map();
+  const add = (key, found) => kinds.set(key, [...(kinds.get(key) ?? []), found]);
   for (const document of documents) {
     for (const schema of Object.values(document.components?.schemas ?? {})) {
-      for (const gvk of schema["x-kubernetes-group-version-kind"] ?? []) {
-        const key = `${apiVersionOf(gvk)} ${gvk.kind}`;
-        kinds.set(key, [...(kinds.get(key) ?? []), { schema, document }]);
-      }
+      for (const gvk of schema["x-kubernetes-group-version-kind"] ?? []) add(`${apiVersionOf(gvk)} ${gvk.kind}`, { schema, document });
+    }
+  }
+  for (const crd of crds) {
+    const { group, names, versions } = crd?.spec ?? {};
+    if (crd?.kind !== "CustomResourceDefinition" || !group || !names?.kind || !Array.isArray(versions)) {
+      throw new Error("a CRD input is not a CustomResourceDefinition with a group, a kind and versions");
+    }
+    for (const served of versions.filter((v) => v.served === true)) {
+      const schema = served.schema?.openAPIV3Schema;
+      if (!schema?.properties) throw new Error(`${group}/${served.name} ${names.kind} has no openAPIV3Schema to project`);
+      // A CRD may not describe metadata: every object's is the API server's ObjectMeta.
+      const withMeta = { ...schema, properties: { ...schema.properties, metadata: { $ref: `#/components/schemas/${OBJECT_META}` } } };
+      add(`${group}/${served.name} ${names.kind}`, { schema: withMeta, document: metadata, crd: true });
     }
   }
   const objects = {};
@@ -223,7 +266,11 @@ export function projectObjectSpec(documents, { api, version }, mapping) {
     if (!held) continue;
     if (!held.object) throw new Error(`mapping type "${type}" names no resource the mapping declares under "objects"`);
     const found = kinds.get(held.kind) ?? [];
-    if (found.length === 0) throw new Error(`the ${api} documents define no ${held.kind}`);
+    // A kind another projection holds is not this one's.
+    if (found.length === 0) continue;
+    if (found.some((f) => f.crd) && !metadata?.components?.schemas?.[OBJECT_META]) {
+      throw new Error(`${held.kind} is a custom resource, whose metadata is Kubernetes' ObjectMeta: give a Kubernetes OpenAPI v3 document that defines it (--metadata)`);
+    }
     const projections = new Set(found.map(({ schema, document }) => {
       const projected = projectObject(resolveSchema(schema, document), document, mappedPaths(entry, { held: true }));
       return JSON.stringify(sortKeys(projected));
@@ -232,7 +279,16 @@ export function projectObjectSpec(documents, { api, version }, mapping) {
     if (projections.size !== 1) throw new Error(`the ${api} documents define ${held.kind} more than one way`);
     objects[held.kind] = { attributes: JSON.parse([...projections][0]) };
   }
-  return sortKeys({ api, version, objects });
+  if (Object.keys(objects).length === 0) throw new Error(`the ${api} inputs define no kind the mapping reads`);
+  if (crds.length > 0 && !metadataVersion) throw new Error("a custom resource's metadata comes from a Kubernetes release: say which (--metadata-version)");
+  // Where every custom resource's metadata was projected from.
+  const objectMeta = crds.length > 0 ? { objectMeta: { api: "kubernetes", version: metadataVersion } } : {};
+  return sortKeys({ api, version, ...objectMeta, objects });
+}
+
+/** The CustomResourceDefinitions in a YAML file (one or several documents). */
+export function readCrds(text) {
+  return parseAllDocuments(text).map((doc) => doc.toJS()).filter((doc) => doc?.kind === "CustomResourceDefinition");
 }
 
 export function renderSpec(spec) {
@@ -253,15 +309,27 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error(
       "usage: gen/facts-spec.mjs <providers-schema.json> --provider <registry suffix, e.g. hashicorp/google> " +
         "--version <provider version> --mapping <mapping.json> --out <spec.json>\n" +
-        "       gen/facts-spec.mjs --api <name> --version <API version> --mapping <mapping.json> --out <spec.json> <openapi-v3.json>...",
+        "       gen/facts-spec.mjs --api <name> --version <API version> --mapping <mapping.json> --out <spec.json> " +
+        "[--metadata <kubernetes-openapi-v3.json> --metadata-version <kubernetes version>] <openapi-v3.json | crd.yaml>...",
     );
     process.exit(2);
   }
   // Every `like` is resolved first, so a type that is like another is
   // projected, and later validated, against its own schema.
   const mapping = expandMapping(JSON.parse(readFileSync(flags.mapping, "utf8")));
+  const isYaml = (file) => /\.ya?ml$/.test(file);
   const spec = flags.api
-    ? projectObjectSpec(positional.map((file) => JSON.parse(readFileSync(file, "utf8"))), { api: flags.api, version: flags.version }, mapping)
+    ? projectObjectSpec(
+        positional.filter((file) => !isYaml(file)).map((file) => JSON.parse(readFileSync(file, "utf8"))),
+        {
+          api: flags.api,
+          version: flags.version,
+          crds: positional.filter(isYaml).flatMap((file) => readCrds(readFileSync(file, "utf8"))),
+          metadata: flags.metadata ? JSON.parse(readFileSync(flags.metadata, "utf8")) : undefined,
+          metadataVersion: flags["metadata-version"],
+        },
+        mapping,
+      )
     : projectSpec(JSON.parse(readFileSync(input, "utf8")), flags.version, mapping, flags.provider);
   writeFileSync(flags.out, renderSpec(spec));
   console.log(`wrote ${flags.out}`);

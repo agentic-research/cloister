@@ -17,7 +17,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { emitK8sDir, graphDir, lowerDir } from "../../commands/cluster.mjs";
-import { KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_SPEC, readsHeldObject } from "../../lib/facts/cloudflare.mjs";
+import { KUBERNETES_MAPPING, KUBERNETES_OBJECT_SPECS, KUBERNETES_SPEC, readsHeldObject } from "../../lib/facts/cloudflare.mjs";
 import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
 import { buildReport, sectionsOf } from "../../lib/facts/report.mjs";
@@ -185,7 +185,7 @@ const withService = (change) => {
 };
 
 test("the shipped mapping follows the provider's schema, and Kubernetes' for the objects a manifest holds", () => {
-  assert.doesNotThrow(() => validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_API_SPEC));
+  assert.doesNotThrow(() => validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_OBJECT_SPECS));
 });
 
 for (const [what, change, message] of [
@@ -199,7 +199,7 @@ for (const [what, change, message] of [
   ["an unknown key on standsFor", (s) => { s.report.standsFor.guess = true; }, /standsFor has unknown key "guess"/],
 ]) {
   test(`the mapping validator refuses ${what}`, () => {
-    assert.throws(() => validateMapping(withService(change), KUBERNETES_SPEC, KUBERNETES_API_SPEC), message);
+    assert.throws(() => validateMapping(withService(change), KUBERNETES_SPEC, KUBERNETES_OBJECT_SPECS), message);
   });
 }
 
@@ -221,10 +221,15 @@ const ALL_WORKLOAD_TYPES = Object.keys(KUBERNETES_MAPPING.types).filter((type) =
 const WORKLOAD_TYPES = ALL_WORKLOAD_TYPES.filter((type) => !readsHeldObject(type));
 
 // The provider names a pod template's fields one way and Kubernetes another
-// (`container`, `containers`), so it is written out once per shape.
+// (`container`, `containers`), so it is written out once per shape. A Knative
+// Service is a different kind of workload: placed knative, an address itself,
+// and its one port's name is its protocol (`http1` or `h2c`), so it is
+// written out too. `like` could not drop the port names it would inherit.
+const KNATIVE_SERVICE = "kubernetes_manifest serving.knative.dev/v1 Service";
 test("the pod template is written out once per shape, and every other workload type refers to it", () => {
   const written = ALL_WORKLOAD_TYPES.filter((type) => RAW.types[type].like === undefined);
-  assert.deepEqual(written, ["kubernetes_deployment_v1", "kubernetes_manifest apps/v1 Deployment"]);
+  assert.deepEqual(written, ["kubernetes_deployment_v1", "kubernetes_manifest apps/v1 Deployment", KNATIVE_SERVICE]);
+  assert.deepEqual(RAW.types[KNATIVE_SERVICE].lists, RAW.types["kubernetes_manifest apps/v1 Deployment"].lists, "the Knative pod template reads as a manifest's does");
   for (const type of ALL_WORKLOAD_TYPES) {
     if (written.includes(type)) continue;
     const base = written[readsHeldObject(type) ? 1 : 0];
@@ -322,7 +327,7 @@ test("a type that is like another is still held to its own schema", () => {
   // valid for the entry it is like must still be refused for the Job.
   const mapping = structuredClone(KUBERNETES_MAPPING);
   mapping.types.kubernetes_job_v1.read = [...mapping.types.kubernetes_job_v1.read, "spec.min_ready_seconds"];
-  assert.throws(() => validateMapping(mapping, KUBERNETES_SPEC, KUBERNETES_API_SPEC), /unknown attribute "kubernetes_job_v1\.spec\.min_ready_seconds"/);
+  assert.throws(() => validateMapping(mapping, KUBERNETES_SPEC, KUBERNETES_OBJECT_SPECS), /unknown attribute "kubernetes_job_v1\.spec\.min_ready_seconds"/);
 });
 
 // ── a bundle called something else where it is deployed (ADR-0074 §4) ────────

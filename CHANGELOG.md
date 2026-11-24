@@ -8,6 +8,21 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister inspect` reads Knative Services (ADR-0073 amendment)
+
+- A Knative Service written as `kubernetes_manifest` (`serving.knative.dev/v1
+  Service`) is read as a workload placed `knative`, which answers at its own
+  cluster name. It is checked against Knative Serving 1.24.0's published CRD,
+  projected by `gen/facts-spec.mjs --api`, which now reads a CRD. A CRD cannot
+  describe `metadata`, so that part is Kubernetes 1.37.0's ObjectMeta.
+- Its port's name is its protocol (`http1`, `h2c`). With no port it is served on
+  8080 over `http1`, and the draft says that was assumed.
+- Its `networking.knative.dev/visibility` label sorts its exposure: `cluster-local`
+  is cluster. With no label the plan does not say, and the draft says so
+  instead of choosing.
+- A mapping's exposure may read one key of a map it reads, and one of its two
+  sort lists may be empty.
+
 ### 2026-11 — ley-line-open 0.31.0
 
 - Every LLO channel moves to v0.31.0 (`eb07092a`) in one step (`task llo:bump`):

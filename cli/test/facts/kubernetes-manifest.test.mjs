@@ -14,8 +14,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { projectObjectSpec, renderSpec } from "../../../gen/facts-spec.mjs";
-import { KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_SPEC } from "../../lib/facts/cloudflare.mjs";
+import { projectObjectSpec, readCrds, renderSpec } from "../../../gen/facts-spec.mjs";
+import { KNATIVE_SERVING_SPEC, KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_OBJECT_SPECS, KUBERNETES_SPEC } from "../../lib/facts/cloudflare.mjs";
 import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
 import { buildReport, sectionsOf } from "../../lib/facts/report.mjs";
@@ -321,13 +321,13 @@ const edited = (change, spec = KUBERNETES_SPEC) => () => {
   const mapping = structuredClone(KUBERNETES_MAPPING);
   const provider = structuredClone(spec);
   change(mapping, provider);
-  validateMapping(mapping, provider, KUBERNETES_API_SPEC);
+  validateMapping(mapping, provider, KUBERNETES_OBJECT_SPECS);
 };
 
 for (const [what, change, message] of [
   ["a path the kind's schema does not have", (m) => { m.types[HELD].read.push("spec.nope"); }, /unknown attribute "kubernetes_manifest apps\/v1 Deployment\.spec\.nope"/],
   ["a provider-shaped path on a kind", (m) => { m.types[HELD].lists[0].path = "spec.template.spec.container"; }, /unknown attribute "kubernetes_manifest apps\/v1 Deployment\.spec\.template\.spec\.container"/],
-  ["a kind the API's schema does not define", (m) => { m.types["kubernetes_manifest apps/v1 Nope"] = { name: "metadata.name" }; }, /reads a kind, apps\/v1 Nope, that the kubernetes spec does not define/],
+  ["a kind the API's schema does not define", (m) => { m.types["kubernetes_manifest apps/v1 Nope"] = { name: "metadata.name" }; }, /reads a kind, apps\/v1 Nope, that no object spec defines \(kubernetes, knative-serving\)/],
   ["a kind of a resource no `objects` entry declares", (m) => { m.types["kubernetes_other apps/v1 Deployment"] = { name: "metadata.name" }; }, /names "kubernetes_other", which the mapping does not declare under "objects"/],
   ["a kind named by fewer values than `by` lists", (m) => { m.types["kubernetes_manifest Deployment"] = { name: "metadata.name" }; }, /must name kubernetes_manifest and its apiVersion and kind, one space apart/],
   ["reference attributes on a kind", (m) => { m.types[HELD].referenceAttrs = ["manifest"]; }, /referenceAttrs: an object held whole is one expression, and where a reference sits in it is not written/],
@@ -448,10 +448,17 @@ test("a kind's projection holds every value field on a mapped path, and only the
   assert.doesNotThrow(() => validateMapping(WIDGET_MAPPING, provider, spec));
 });
 
-test("a kind the documents do not define, or define two ways, stops the projection", () => {
-  const missing = structuredClone(WIDGET_MAPPING);
-  missing.types["x_object example.test/v1 Gadget"] = { name: "metadata.name" };
-  assert.throws(() => projectObjectSpec([WIDGET_API], { api: "test", version: "1.0.0" }, missing), /the test documents define no example\.test\/v1 Gadget/);
+test("a projection holds the kinds its inputs define; inputs that define none, or define one two ways, stop it", () => {
+  // A kind these documents do not define belongs to another projection. The
+  // validator, which sees every projection, refuses a kind none of them holds.
+  const more = structuredClone(WIDGET_MAPPING);
+  more.types["x_object example.test/v1 Gadget"] = { name: "metadata.name" };
+  const spec = projectObjectSpec([WIDGET_API], { api: "test", version: "1.0.0" }, more);
+  assert.deepEqual(Object.keys(spec.objects), ["example.test/v1 Widget"]);
+  const provider = { resources: { x_object: { attributes: { body: { sensitive: false, type: "dynamic" } } } } };
+  assert.throws(() => validateMapping(more, provider, [spec]), /reads a kind, example\.test\/v1 Gadget, that no object spec defines \(test\)/);
+  const none = { ...structuredClone(WIDGET_MAPPING), types: { "x_object example.test/v1 Gadget": { name: "metadata.name" } } };
+  assert.throws(() => projectObjectSpec([WIDGET_API], { api: "test", version: "1.0.0" }, none), /the test inputs define no kind the mapping reads/);
   // Every document carries a copy of the kinds it refers to. The copies must agree.
   const other = structuredClone(WIDGET_API);
   other.components.schemas["x.Spec"].properties.replicas = { type: "string" };
@@ -469,4 +476,158 @@ test("the vendored Kubernetes projection is reproducible from Kubernetes' OpenAP
   const documents = ["api__v1_openapi.json", "apis__apps__v1_openapi.json", "apis__batch__v1_openapi.json"].map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
   const projected = renderSpec(projectObjectSpec(documents, { api: KUBERNETES_API_SPEC.api, version: KUBERNETES_API_SPEC.version }, KUBERNETES_MAPPING));
   assert.equal(projected, readFileSync(here("../../lib/facts/spec/kubernetes-api.schema.json"), "utf8"));
+});
+
+// ── a Knative Service ────────────────────────────────────────────────────────
+
+/**
+ * The fixture with its server written as a Knative Service. Knative gives the
+ * Service its own cluster name, so the Kubernetes Service in front of the
+ * Deployment goes, and the callers dial the Knative Service's name as before.
+ */
+function withKnativeServer(change = () => {}) {
+  const doc = plan();
+  const server = resourcesOf(doc).find((r) => r.address === "kubernetes_deployment_v1.server");
+  const object = objectOf(server);
+  object.apiVersion = "serving.knative.dev/v1";
+  object.kind = "Service";
+  delete object.spec.selector;
+  // A Knative port's name is its protocol.
+  for (const c of object.spec.template.spec.containers) c.ports = c.ports.map((p) => ({ ...p, name: "http1" }));
+  change(object);
+  resourcesOf(doc)[resourcesOf(doc).indexOf(server)] = {
+    address: "kubernetes_manifest.server", mode: "managed", type: "kubernetes_manifest", name: "server", provider_name: server.provider_name,
+    schema_version: 1, values: { manifest: object }, sensitive_values: { manifest: {} },
+  };
+  doc.planned_values.root_module.resources = resourcesOf(doc).filter((r) => r.address !== "kubernetes_service_v1.server");
+  doc.configuration.root_module.resources = configOf(doc).filter((r) => !["kubernetes_service_v1.server", "kubernetes_deployment_v1.server"].includes(r.address));
+  return doc;
+}
+
+test("a Knative Service is read as a workload placed knative, and answers at its own cluster name", () => {
+  const doc = withKnativeServer();
+  assert.deepEqual(importFacts(doc).skipped, {});
+  const server = workload(doc, "server", "Knative services");
+  assert.ok(server, "the Knative Service was not read");
+  assert.equal(server.bundle.placement, "knative");
+  assert.equal(server.bundle.runs, "service");
+  assert.equal(server.bundle.image, "registry.k8s.io/e2e-test-images/agnhost:2.53");
+  // The port's name is not free text here, so its protocol is read, not taken by convention.
+  assert.deepEqual(server.bundle.ports, [{ name: "http1", port: 8080, appProtocol: "art.http", assumed: false, byConvention: false }]);
+  for (const [name, section] of [["caller", "Kubernetes deployments"], ["probe", "Kubernetes jobs"]]) {
+    assert.deepEqual(workload(doc, name, section).dials.map((d) => [d.to, d.section]), [["server", "Knative services"]], name);
+  }
+  // The draft places it as what it is.
+  assert.match(draftCluster(importFacts(doc), { env: "prod" }).toml, /name = "server"\nkind = "external"[\s\S]*?env = "prod"\nkind = "knative"/);
+});
+
+test("a Knative Service with no port is served on 8080 over http1, and the draft says that was assumed", () => {
+  const doc = withKnativeServer((o) => { for (const c of o.spec.template.spec.containers) delete c.ports; });
+  assert.deepEqual(workload(doc, "server", "Knative services").bundle.ports, [{ name: "http1", port: 8080, appProtocol: "art.http", assumed: true }]);
+  const { notes } = draftCluster(importFacts(doc), { env: "prod" });
+  assert.ok(notes.includes(`"server": declares no port; 8080 ("http1") is this provider's default and was assumed, not read`), notes.join("\n"));
+});
+
+test("a Knative Service's visibility label says when it is cluster-local; with none, the inputs do not say", () => {
+  const label = 'metadata.labels["networking.knative.dev/visibility"]';
+  const local = withKnativeServer((o) => { o.metadata.labels = { "networking.knative.dev/visibility": "cluster-local" }; });
+  assert.deepEqual(workload(local, "server", "Knative services").bundle.exposure, { attr: label, setting: "cluster-local", expose: "cluster" });
+  // With no label, the cluster's own default decides, and the plan does not state it.
+  const unstated = withKnativeServer();
+  assert.deepEqual(workload(unstated, "server", "Knative services").bundle.exposure, { attr: label, setting: "", expose: "" });
+  const { notes } = draftCluster(importFacts(unstated), { env: "prod" });
+  assert.ok(notes.some((n) => n.startsWith(`"server": these inputs do not state its ${label}, so whether it can be reached from outside is unknown`)), notes.join("\n"));
+});
+
+test("one kind is read one way: a kind two object specs define is refused", () => {
+  assert.throws(() => validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, [KUBERNETES_API_SPEC, KUBERNETES_API_SPEC, KNATIVE_SERVING_SPEC]), /kind apps\/v1 \S+ is defined by more than one object spec \(kubernetes, kubernetes\)/);
+});
+
+// ── a custom resource's schema is its CRD's ─────────────────────────────────
+
+const OBJECT_META_API = {
+  components: {
+    schemas: {
+      "io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta": {
+        type: "object",
+        properties: { name: { type: "string" }, namespace: { type: "string" }, labels: { type: "object", additionalProperties: { type: "string" } } },
+      },
+    },
+  },
+};
+const GIZMO_CRD = {
+  apiVersion: "apiextensions.k8s.io/v1",
+  kind: "CustomResourceDefinition",
+  spec: {
+    group: "example.test",
+    names: { kind: "Gizmo" },
+    versions: [
+      {
+        name: "v1",
+        served: true,
+        schema: {
+          openAPIV3Schema: {
+            type: "object",
+            properties: {
+              apiVersion: { type: "string" },
+              kind: { type: "string" },
+              metadata: { type: "object" },
+              spec: { type: "object", properties: { size: { type: "integer" }, extra: { type: "object", "x-kubernetes-preserve-unknown-fields": true } } },
+            },
+          },
+        },
+      },
+      { name: "v1alpha1", served: false, schema: { openAPIV3Schema: { type: "object", properties: { spec: { type: "object" } } } } },
+    ],
+  },
+};
+const GIZMO_MAPPING = {
+  provider: "test/x",
+  objects: { x_object: { attr: "body", by: ["apiVersion", "kind"] } },
+  types: { "x_object example.test/v1 Gizmo": { name: "metadata.name", read: ["metadata.namespace", "spec.size"], maps: ["metadata.labels"] } },
+};
+const GIZMO_PROVIDER = { resources: { x_object: { attributes: { body: { sensitive: false, type: "dynamic" } } } } };
+
+test("a custom resource is projected from its CRD, with metadata from Kubernetes' ObjectMeta", () => {
+  const spec = projectObjectSpec([], { api: "gizmos", version: "1.0.0", crds: [GIZMO_CRD], metadata: OBJECT_META_API, metadataVersion: "1.37.0" }, GIZMO_MAPPING);
+  assert.deepEqual(Object.keys(spec.objects), ["example.test/v1 Gizmo"], "a version the CRD does not serve is not a kind");
+  assert.deepEqual(spec.objectMeta, { api: "kubernetes", version: "1.37.0" });
+  const attributes = spec.objects["example.test/v1 Gizmo"].attributes;
+  // A CRD cannot describe metadata: the API server's ObjectMeta is projected instead.
+  assert.deepEqual(Object.keys(attributes.metadata.attributes).sort(), ["labels", "name", "namespace"]);
+  // A field the CRD leaves open has no shape, so no path walks into it.
+  assert.deepEqual(attributes.spec.attributes.extra, { sensitive: false, type: "dynamic" });
+  assert.doesNotThrow(() => validateMapping(GIZMO_MAPPING, GIZMO_PROVIDER, [spec]));
+  const into = structuredClone(GIZMO_MAPPING);
+  into.types["x_object example.test/v1 Gizmo"].read.push("spec.extra.anything");
+  assert.throws(() => validateMapping(into, GIZMO_PROVIDER, [spec]), /"x_object example\.test\/v1 Gizmo\.spec\.extra\.anything" is not a nested attribute/);
+  // Without ObjectMeta, or without saying which release it came from, metadata is not checked against anything.
+  assert.throws(() => projectObjectSpec([], { api: "gizmos", version: "1.0.0", crds: [GIZMO_CRD], metadataVersion: "1.37.0" }, GIZMO_MAPPING), /is a custom resource, whose metadata is Kubernetes' ObjectMeta/);
+  assert.throws(() => projectObjectSpec([], { api: "gizmos", version: "1.0.0", crds: [GIZMO_CRD], metadata: OBJECT_META_API }, GIZMO_MAPPING), /say which \(--metadata-version\)/);
+  assert.throws(() => projectObjectSpec([], { api: "gizmos", version: "1.0.0", crds: [{ kind: "ConfigMap" }], metadata: OBJECT_META_API, metadataVersion: "1.37.0" }, GIZMO_MAPPING), /not a CustomResourceDefinition/);
+});
+
+test("the Knative projection's metadata is from the same Kubernetes release as the Kubernetes projection", () => {
+  // Moving one without the other would check a custom resource's metadata against another release's.
+  assert.deepEqual(KNATIVE_SERVING_SPEC.objectMeta, { api: "kubernetes", version: KUBERNETES_API_SPEC.version });
+});
+
+test("the vendored Knative projection is reproducible from Knative's CRD and Kubernetes' ObjectMeta", (t) => {
+  const crd = process.env.FACTS_KNATIVE_SERVICE_CRD;
+  const dir = process.env.FACTS_KUBERNETES_OPENAPI;
+  if (!crd || !dir) {
+    t.skip(
+      `set FACTS_KNATIVE_SERVICE_CRD to Knative ${KNATIVE_SERVING_SPEC.version}'s config/core/300-resources/service.yaml, and FACTS_KUBERNETES_OPENAPI ` +
+        `to Kubernetes ${KNATIVE_SERVING_SPEC.objectMeta.version}'s api/openapi-spec/v3 directory, to check the projection byte for byte`,
+    );
+    return;
+  }
+  const projected = renderSpec(projectObjectSpec([], {
+    api: KNATIVE_SERVING_SPEC.api,
+    version: KNATIVE_SERVING_SPEC.version,
+    crds: readCrds(readFileSync(crd, "utf8")),
+    metadata: JSON.parse(readFileSync(join(dir, "api__v1_openapi.json"), "utf8")),
+    metadataVersion: KNATIVE_SERVING_SPEC.objectMeta.version,
+  }, KUBERNETES_MAPPING));
+  assert.equal(projected, readFileSync(here("../../lib/facts/spec/knative-serving.schema.json"), "utf8"));
 });
