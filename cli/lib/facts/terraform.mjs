@@ -79,11 +79,22 @@ function configuredField(expression) {
     return CONSTANTS.has(typeof expression.constant_value) ? { constant: expression.constant_value } : undefined;
   }
   if (!Array.isArray(expression.references)) return undefined;
-  const references = resourceReferences(expression.references);
-  // `google_x.y.uri` is listed beside `google_x.y`; only what is not a
-  // managed resource at all is "unresolved".
-  const unresolved = [...new Set(expression.references.filter((r) => typeof r === "string" && NOT_A_RESOURCE.some((p) => r.startsWith(p))))].sort();
-  return { references, unresolved };
+  return sourcesOf(expression.references);
+}
+
+/**
+ * Sort what an expression names into managed resource addresses and
+ * everything else: a variable, a local, a data source, or a name this reader
+ * cannot classify. Total: every string named is an address kept, a path into
+ * one (`google_x.y.uri` beside `google_x.y`, which that address stands for),
+ * or "unresolved". Nothing named is dropped, so "names nothing" follows only
+ * from an expression that names nothing.
+ */
+function sourcesOf(named) {
+  const strings = (Array.isArray(named) ? named : []).filter((r) => typeof r === "string");
+  const references = resourceReferences(strings);
+  const within = (r) => references.some((a) => r === a || r.startsWith(`${a}.`) || r.startsWith(`${a}[`));
+  return { references, unresolved: [...new Set(strings.filter((r) => !within(r)))].sort() };
 }
 
 /**
@@ -95,11 +106,7 @@ function configuredField(expression) {
  */
 export function expressionSources(expression) {
   if (!expression || typeof expression !== "object" || Array.isArray(expression)) return undefined;
-  const named = Array.isArray(expression.references) ? expression.references.filter((r) => typeof r === "string") : [];
-  return {
-    references: resourceReferences(named),
-    unresolved: [...new Set(named.filter((r) => NOT_A_RESOURCE.some((p) => r.startsWith(p))))].sort(),
-  };
+  return sourcesOf(expression.references);
 }
 
 /**
@@ -136,7 +143,8 @@ export function configuredRows(expressions, path, fields) {
 
 /** Prefixes of a `references` entry that is not a managed resource. */
 const NOT_A_RESOURCE = ["var.", "local.", "data.", "module.", "each.", "count.", "path.", "terraform."];
-const NAME_PART = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+// Terraform's identifiers are Unicode identifiers, with `-` allowed after the first character.
+const NAME_PART = /^[\p{ID_Start}_][\p{ID_Continue}-]*$/u;
 
 /** Keep only entries that are exactly `<type>.<name>`: a managed resource address. */
 export function resourceReferences(references) {
@@ -211,6 +219,12 @@ function deepReferences(expression, key, out = [], list = key) {
   return out;
 }
 
+/** A resource's sensitivity markers: an object, or `true` when they are malformed (fail closed). */
+function markersOf(markers) {
+  if (markers === undefined) return {};
+  return markers !== null && typeof markers === "object" && !Array.isArray(markers) ? markers : true;
+}
+
 /** The key under which a resource's reference table carries where each reference is written. */
 export const SITES = Symbol("reference sites");
 
@@ -224,10 +238,9 @@ function collect(module, out) {
       name: typeof resource.name === "string" ? resource.name : "",
       provider: typeof resource.provider_name === "string" ? resource.provider_name : "",
       values: resource.values && typeof resource.values === "object" ? resource.values : {},
-      sensitive:
-        resource.sensitive_values && typeof resource.sensitive_values === "object"
-          ? resource.sensitive_values
-          : {},
+      // No markers means nothing is marked. Markers that are not an object
+      // are malformed, and mark the whole resource: nothing of it is read.
+      sensitive: markersOf(resource.sensitive_values),
     });
   }
   for (const child of module.child_modules ?? []) collect(child, out);

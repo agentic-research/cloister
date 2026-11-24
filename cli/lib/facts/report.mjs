@@ -16,7 +16,7 @@
 
 import { checkableBundle, placementName, portsFor, secretBorne } from "../cluster/connections.mjs";
 import { addressesIn } from "../cluster/manifest-addresses.mjs";
-import { bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
+import { WITHHELD_FIELDS, bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
 
 const SCRIPT = "cloudflare_workers_script";
 const WRANGLER = "wrangler_worker";
@@ -147,24 +147,39 @@ function principalOf(fact, rule) {
 function bundleOf(fact, rule, facts, withRun, addressed) {
   const image = rule.image ? (fact.attrs[rule.image.list] ?? []).map((row) => row[rule.image.value]).find((v) => typeof v === "string" && v !== "") ?? "" : "";
   const ports = [];
+  // A default stands in for what is absent, never for what the document
+  // withholds: a port that is there, unread, is not a port that is not there.
+  let portsWithheld = false;
   if (rule.ports) {
+    portsWithheld = fact.attrs[`${rule.ports.list}Withheld`] === true;
     for (const row of fact.attrs[rule.ports.list] ?? []) {
+      const hidden = row[WITHHELD_FIELDS] ?? [];
+      if (hidden.includes(rule.ports.port)) { portsWithheld = true; continue; }
       const port = row[rule.ports.port];
       if (!Number.isInteger(port)) continue;
-      // An unnamed port is served the provider's default way.
-      const wire = typeof row[rule.ports.name] === "string" && row[rule.ports.name] !== "" ? row[rule.ports.name] : rule.ports.default?.name ?? "";
+      // An unnamed port is served the provider's default way. One whose name
+      // is withheld is served a way these inputs do not show.
+      const nameWithheld = hidden.includes(rule.ports.name);
+      const stated = typeof row[rule.ports.name] === "string" && row[rule.ports.name] !== "";
+      const wire = stated ? row[rule.ports.name] : nameWithheld ? "" : rule.ports.default?.name ?? "";
       const appProtocol = Object.hasOwn(rule.wires ?? {}, wire) ? rule.wires[wire] : "";
       // Where a port's name is free text, a protocol read from it is a
       // convention, and the draft says it was not declared.
-      ports.push({ name: wire, port, appProtocol, assumed: false, byConvention: rule.ports.byConvention === true && appProtocol !== "" });
+      ports.push({
+        name: wire, port, appProtocol, assumed: false, byConvention: rule.ports.byConvention === true && appProtocol !== "",
+        ...(nameWithheld ? { nameWithheld: true } : {}),
+      });
     }
-    if (ports.length === 0 && rule.ports.default) {
+    if (ports.length === 0 && !portsWithheld && rule.ports.default) {
       const { name, port } = rule.ports.default;
       ports.push({ name, port, appProtocol: rule.wires[name], assumed: true });
     }
   }
   const strings = (ref) => (ref ? (fact.attrs[ref.list] ?? []).flatMap((row) => row[ref.strings] ?? []) : []);
-  const bundle = { placement: rule.placement, runs: rule.runs ?? "service", image, ports, exposure: exposureOf(fact, rule.exposure) };
+  const bundle = {
+    placement: rule.placement, runs: rule.runs ?? "service", image, ports, exposure: exposureOf(fact, rule.exposure),
+    ...(portsWithheld ? { portsWithheld: true } : {}),
+  };
   // What it is started with is read only when a caller is going to write a
   // manifest from it. The report never carries it: an argument or an env value
   // may hold an address or worse, and the report is printed.
@@ -364,7 +379,8 @@ function declaredSections(facts, kind, { withRun = false } = {}) {
         bundle: entry.report.bundle ? bundleOf(fact, entry.report.bundle, facts, withRun, addressed) : null,
         // A list the document marks sensitive is not read. Say so: "no edge
         // found" would otherwise read as "no edge".
-        withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop()).filter((key) => fact.attrs[`${key}Withheld`] === true),
+        withheld: (entry.lists ?? []).map((list) => list.path.split(".").pop())
+          .filter((key) => fact.attrs[`${key}Withheld`] === true || (fact.attrs[key] ?? []).some((row) => (row[WITHHELD_FIELDS] ?? []).length > 0)),
       };
     });
     if (resources.length === 0) continue;

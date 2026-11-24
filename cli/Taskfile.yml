@@ -176,6 +176,8 @@ tasks:
     # change under a listed path re-runs it. CI cold-checkout always runs it.
     sources:
       - cli/**/*.mjs
+      # The facts mappings and vendored projections, which the facts tests read.
+      - cli/**/*.json
       - lint/**/*.mjs
       - gen/**/*.mjs
       - dev/**/*.mjs
