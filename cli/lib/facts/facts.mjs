@@ -70,7 +70,7 @@ function printable(value) {
   return value;
 }
 
-function deepFreeze(value) {
+export function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const inner of Object.values(value)) deepFreeze(inner);
     Object.freeze(value);

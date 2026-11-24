@@ -300,7 +300,9 @@ test("every attribute in the real mapping exists in the vendored spec and is not
 test("the spec projection is reproducible from the providers schema", (t) => {
   const source = process.env.FACTS_PROVIDERS_SCHEMA;
   if (!source) {
-    t.skip("set FACTS_PROVIDERS_SCHEMA to a `tofu providers schema -json` file to check the projection byte for byte");
+    // Fails rather than skips under FACTS_SOURCES_REQUIRED=1: gen/facts-sources.mjs --check, which CI's facts-checked job runs.
+    if (process.env.FACTS_SOURCES_REQUIRED === "1") assert.fail("FACTS_SOURCES_REQUIRED=1 and FACTS_PROVIDERS_SCHEMA is not set");
+    t.skip("set FACTS_PROVIDERS_SCHEMA to a `tofu providers schema -json` file to check the projection byte for byte (node gen/facts-sources.mjs fetches it)");
     return;
   }
   const schema = JSON.parse(readFileSync(source, "utf8"));
@@ -943,8 +945,10 @@ test("nested blocks: a sensitive env value is dropped, and a marker that cannot 
   // The document marks one env value and the whole args list sensitive.
   resource.sensitive_values = { template: [{ containers: [{ env: [{ value: true }, {}], args: true }] }] };
   let [fact] = importFacts(doc).facts;
-  assert.deepEqual(fact.attrs.env, [{ name: "TOKEN" }, { name: "PLAIN", value: "ok" }]);
+  // The row says its value was withheld, not absent: a default never stands in for it.
+  assert.deepEqual(fact.attrs.env, [{ name: "TOKEN", "(withheld)": ["value"] }, { name: "PLAIN", value: "ok" }]);
   assert.equal(Object.hasOwn(fact.attrs.containers[0], "args"), false);
+  assert.deepEqual(fact.attrs.containers[0]["(withheld)"], ["args"]);
   assert.ok(!strings(fact).includes("s3cret-value"));
   // A marker list shorter than the rows: the unmarked row is not known to be public.
   resource.sensitive_values = { template: [{ containers: [{ env: [{}] }] }] };

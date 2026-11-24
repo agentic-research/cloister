@@ -33,27 +33,31 @@ import kubernetesApiSpec from "./spec/kubernetes-api.schema.json" with { type: "
 import knativeServingSpec from "./spec/knative-serving.schema.json" with { type: "json" };
 import kubernetesSpec from "./spec/kubernetes.schema.json" with { type: "json" };
 
-import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
+import { deepFreeze, isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
 import { expandMapping, heldObject, objectKind, objectType } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
 import { SITES, configuredRows, expressionSources } from "./terraform.mjs";
 
-/** A mapping, with every `like` resolved (see mapping.mjs). */
-const readMapping = (mapping) => expandMapping(structuredClone(mapping));
+/**
+ * A mapping, with every `like` resolved (see mapping.mjs), and frozen all the
+ * way down: it is validated once, at load, so nothing may change it after.
+ */
+const readMapping = (mapping) => deepFreeze(expandMapping(structuredClone(mapping)));
+const readSpec = (spec) => deepFreeze(structuredClone(spec));
 
-export const CLOUDFLARE_MAPPING = Object.freeze(readMapping(cloudflareMapping));
-export const CLOUDFLARE_SPEC = Object.freeze(structuredClone(cloudflareSpec));
+export const CLOUDFLARE_MAPPING = readMapping(cloudflareMapping);
+export const CLOUDFLARE_SPEC = readSpec(cloudflareSpec);
 validateMapping(CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC);
-export const GOOGLE_MAPPING = Object.freeze(readMapping(googleMapping));
-export const GOOGLE_SPEC = Object.freeze(structuredClone(googleSpec));
+export const GOOGLE_MAPPING = readMapping(googleMapping);
+export const GOOGLE_SPEC = readSpec(googleSpec);
 validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC);
-export const KUBERNETES_MAPPING = Object.freeze(readMapping(kubernetesMapping));
-export const KUBERNETES_SPEC = Object.freeze(structuredClone(kubernetesSpec));
+export const KUBERNETES_MAPPING = readMapping(kubernetesMapping);
+export const KUBERNETES_SPEC = readSpec(kubernetesSpec);
 // The objects a `kubernetes_manifest` holds are checked against the published
 // schema of their API, which the provider leaves to the API server:
 // Kubernetes' own for its kinds, and a custom resource's CRD for that kind.
-export const KUBERNETES_API_SPEC = Object.freeze(structuredClone(kubernetesApiSpec));
-export const KNATIVE_SERVING_SPEC = Object.freeze(structuredClone(knativeServingSpec));
+export const KUBERNETES_API_SPEC = readSpec(kubernetesApiSpec);
+export const KNATIVE_SERVING_SPEC = readSpec(knativeServingSpec);
 export const KUBERNETES_OBJECT_SPECS = Object.freeze([KUBERNETES_API_SPEC, KNATIVE_SERVING_SPEC]);
 validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_OBJECT_SPECS);
 
@@ -107,7 +111,8 @@ export function entryFor(resource) {
     const object = heldObject(mapping, resource.type);
     if (!object) continue;
     const value = own(resource.values, object.attr);
-    const marker = own(resource.sensitive ?? {}, object.attr);
+    // A resource marked whole (malformed markers are read as that) marks its object whole.
+    const marker = resource.sensitive === true ? true : own(resource.sensitive ?? {}, object.attr);
     const unread = { skipped: `${resource.type} (kind not stated)` };
     if (!value || typeof value !== "object" || Array.isArray(value)) return unread;
     // The whole object marked sensitive, or a marker of any other shape: nothing in it is read.
@@ -126,6 +131,9 @@ export function entryFor(resource) {
       resource: { ...resource, type, values: value, sensitive: marker && typeof marker === "object" ? marker : {}, heldIn: object.attr },
     };
   }
+  // A document's type is a Terraform identifier. One with a space would be
+  // read as a kind of held object without the object saying what it is.
+  if (/\s/.test(resource.type)) return { skipped: resource.type };
   const entry = mappedType(resource.type);
   return entry ? { entry, resource } : { skipped: resource.type };
 }
@@ -197,32 +205,60 @@ function pickPath(values, sensitive, path) {
  * marker per element. `true` means the whole list is sensitive. Any other
  * shape is malformed and is treated the same way. An element with no marker
  * of its own (a marker array shorter than the list) is not known to be public.
- * In each of those cases the rows are withheld and the caller is told.
+ * An element, or a nested object, marked whole (`true`) is withheld too, at
+ * every level, the last included: a row is never handed over with a `true`
+ * marker, which a reader indexing into it would see as "nothing marked". In
+ * each of those cases the rows are withheld and the caller is told.
+ *
+ * Every row returned carries a marker that is an object, or undefined.
  */
 function rowsAt(values, sensitive, segments) {
-  let level = [{ value: values, marker: sensitive }];
+  let level = [{ value: values, marker: rowMarker(sensitive) }];
   let withheld = false;
   for (const segment of segments) {
     const next = [];
     for (const { value, marker } of level) {
+      if (marker === WITHHELD) { withheld = true; continue; }
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const inner = value[segment];
-      const innerMarker = marker && typeof marker === "object" && !Array.isArray(marker) ? marker[segment] : marker === undefined ? undefined : null;
-      if (innerMarker === null) { withheld = true; continue; }
+      const innerMarker = marker?.[segment];
       if (!Array.isArray(inner)) {
-        if (inner !== undefined && inner !== null) next.push({ value: inner, marker: innerMarker });
+        if (inner !== undefined && inner !== null) next.push({ value: inner, marker: rowMarker(innerMarker) });
         continue;
       }
-      if (innerMarker !== undefined && !Array.isArray(innerMarker)) { withheld = true; continue; }
+      if (innerMarker !== undefined && innerMarker !== false && !Array.isArray(innerMarker)) { withheld = true; continue; }
       inner.forEach((item, index) => {
         if (Array.isArray(innerMarker) && index >= innerMarker.length) { withheld = true; return; }
-        next.push({ value: item, marker: Array.isArray(innerMarker) ? innerMarker[index] : undefined });
+        next.push({ value: item, marker: Array.isArray(innerMarker) ? rowMarker(innerMarker[index]) : undefined });
       });
     }
     level = next;
   }
-  return { rows: level.map(({ value, marker }) => ({ row: value, marker })), withheld };
+  const rows = [];
+  for (const { value, marker } of level) {
+    if (marker === WITHHELD) { withheld = true; continue; }
+    rows.push({ row: value, marker });
+  }
+  return { rows, withheld };
 }
+
+/** A marker rowsAt cannot index into: the value is marked whole, or the marker is malformed. */
+const WITHHELD = Symbol("withheld");
+
+/** A row's marker as rowsAt carries it: an object, undefined (nothing marked), or WITHHELD. */
+function rowMarker(marker) {
+  if (marker === undefined || marker === false) return undefined;
+  if (marker !== null && typeof marker === "object" && !Array.isArray(marker)) return marker;
+  return WITHHELD;
+}
+
+/**
+ * The key, on a list row, naming the fields the document marks sensitive.
+ * Withheld is not absent: a field that is not there may take a default (a
+ * port's protocol, Knative's 8080), and one that is withheld never does. It
+ * cannot be a field's own name: a mapping path holds no parenthesis.
+ */
+export const WITHHELD_FIELDS = "(withheld)";
 
 /** The ONE generic importer: a resource of a mapped type in, a fact out. */
 export function importResource(resource, entry, references, expressions) {
@@ -246,17 +282,23 @@ export function importResource(resource, entry, references, expressions) {
       if (!row || typeof row !== "object") continue;
       // A field may be a path through nested objects (`valueFrom.secretKeyRef.name`).
       const picked = {};
+      const withheldFields = [];
       for (const path of list.read ?? []) {
         const value = pickPath(row, marker, path);
         if (value !== undefined) picked[path] = value;
+        else if (isMarkedSensitive(markerAt(marker, path))) withheldFields.push(path);
       }
       for (const name of list.strings ?? []) {
         // A list of strings is read whole or not at all: any marker on it
         // other than "nothing here is sensitive" withholds it.
-        if (!Array.isArray(row[name]) || isMarkedSensitive(marker?.[name])) continue;
+        if (!Array.isArray(row[name])) continue;
+        if (isMarkedSensitive(markerAt(marker, name))) { withheldFields.push(name); continue; }
         const strings = row[name].filter((item) => typeof item === "string");
         if (strings.length > 0) picked[name] = strings;
       }
+      // A row whose every field is withheld is still a row: a port that is
+      // there, unread, is not a port that is not there.
+      if (withheldFields.length > 0) picked[WITHHELD_FIELDS] = withheldFields;
       if (Object.keys(picked).length > 0) attrs[key].push(picked);
     }
   }
@@ -303,12 +345,19 @@ export function importResource(resource, entry, references, expressions) {
     const sources = expressionSources(expressions[resource.heldIn]);
     if (sources) attrs.takenFrom = sources;
   }
-  const named = entry.name === undefined ? undefined : pickPath(values, sensitive, entry.name);
+  // An entry that says where the name is gets that name, or none. Falling
+  // back to the Terraform label would name the resource after something the
+  // document never said it is called, and its address would be built from it.
+  const named = entry.name === undefined ? resource.name : pickPath(values, sensitive, entry.name);
+  // Every entry is one of a mapping loaded and validated above, which names
+  // its provider. Any other entry has no provider to state, and none is assumed.
+  const source = SOURCE_OF.get(entry);
+  if (source === undefined) throw new Error(`facts: ${resource.address} was read with an entry no loaded mapping holds, so the provider its fact comes from is unknown`);
   return makeFact({
-    source: SOURCE_OF.get(entry) ?? "terraform:cloudflare",
+    source,
     address: resource.address,
     type: resource.type,
-    name: typeof named === "string" ? named : resource.name,
+    name: typeof named === "string" ? named : "",
     attrs,
   });
 }

@@ -336,6 +336,37 @@ them back:
   and a plan does not state it, so it is unknown. A sort list may be empty, as
   long as some value is sorted.
 
+**Amendment (2026-11-24): what is withheld stays withheld, and every
+projection is rebuilt from its source.** A review of the reader's types found
+places where a value the document withholds, or a marker it malforms, was
+read as if it were absent or public:
+
+- **Withheld is not absent.** A default stands in for a value the document
+  does not have, never for one it withholds. A list row keeps the names of the
+  fields the document marks sensitive (`(withheld)`), so a withheld port is not
+  replaced by the default port, and a port whose name is withheld is not given
+  the default protocol. The draft says each was not read. A name the entry says
+  where to find, withheld or absent, is no name: it does not fall back to the
+  Terraform label, which no address may be built from.
+- **A marker that cannot be read marks what it is on.** A row, or an object in
+  one, marked whole is withheld at every level of a list's path, the last
+  included. Markers that are not an object mark the whole resource, and the
+  object it holds.
+- **What an expression names is sorted totally**: a managed resource address, a
+  path into one, or unresolved. Nothing it names is dropped, so a value is a
+  constant only when its expression names nothing.
+- **The mapping format is closed.** Every level refuses a key it does not
+  define, and two lists kept under one key, or under a key the fact already
+  uses, are refused by name. Mappings and projections are frozen once
+  validated. A fact names the provider of the mapping that read it, and an
+  entry no loaded mapping holds is refused rather than labeled Cloudflare.
+- **Every vendored projection is rebuilt from the release it records.** The
+  checks skipped without their sources, so no gate ran them, and the Cloudflare
+  projection recorded provider 5.23.0 while being 5.29.0's. It now records
+  5.29.0. `gen/facts-sources.mjs` fetches each source at the release its
+  projection records, and CI's `facts-checked` job runs the facts tests with
+  `FACTS_SOURCES_REQUIRED=1`, under which a missing source fails.
+
 **Amendment (2026-11-24, proposed): a checkout supplies the CRDs, and the
 entries, for kinds cloister does not ship.** A cluster runs custom resources
 cloister has never heard of: an operator's own, or a vendor's. Shipping a
@@ -452,6 +483,7 @@ does not ship.
 | Kubernetes types: Deployments, StatefulSets, DaemonSets, Jobs, Services and Namespaces (amendment of 2026-11-19) | built; own mapping and spec |
 | Objects a resource holds whole: `kubernetes_manifest` objects of the same six kinds, checked against Kubernetes' published schema (amendment of 2026-11-23) | built |
 | A custom resource held whole, checked against its CRD: Knative Services (amendment of 2026-11-24) | built |
+| Every vendored projection rebuilt from the release it records, in CI (second amendment of 2026-11-24) | built |
 | Other kinds held whole (an Ingress; other custom resources) | not built; each is a mapping entry and a projected schema |
 | CRDs and entries a checkout supplies, for kinds cloister does not ship (amendment of 2026-11-24, proposed) | not built |
 | Other providers | not built |

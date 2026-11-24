@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { projectObjectSpec, readCrds, renderSpec } from "../../../gen/facts-spec.mjs";
+import { OBJECT_SOURCES } from "../../../gen/facts-sources.mjs";
 import { KNATIVE_SERVING_SPEC, KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_OBJECT_SPECS, KUBERNETES_SPEC } from "../../lib/facts/cloudflare.mjs";
 import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
@@ -22,6 +23,19 @@ import { buildReport, sectionsOf } from "../../lib/facts/report.mjs";
 import { validateMapping } from "../../lib/facts/validate.mjs";
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url));
+
+/**
+ * The source a reproducibility check reads, named by `variable`. Without it
+ * the check skips, except under FACTS_SOURCES_REQUIRED=1 (gen/facts-sources.mjs
+ * --check, which CI's facts-checked job runs), where it fails.
+ */
+function sourceOf(t, variable, what) {
+  const value = process.env[variable];
+  if (value) return value;
+  if (process.env.FACTS_SOURCES_REQUIRED === "1") assert.fail(`FACTS_SOURCES_REQUIRED=1 and ${variable} is not set: it names ${what}`);
+  t.skip(`set ${variable} to ${what} to check the projection byte for byte (node gen/facts-sources.mjs fetches it)`);
+  return undefined;
+}
 const plan = () => JSON.parse(readFileSync(here("../../../test/fixtures/terraform/kubernetes-plan.show.json"), "utf8"));
 const resourcesOf = (doc) => doc.planned_values.root_module.resources;
 const configOf = (doc) => doc.configuration.root_module.resources;
@@ -468,12 +482,9 @@ test("a projection holds the kinds its inputs define; inputs that define none, o
 });
 
 test("the vendored Kubernetes projection is reproducible from Kubernetes' OpenAPI documents", (t) => {
-  const dir = process.env.FACTS_KUBERNETES_OPENAPI;
-  if (!dir) {
-    t.skip(`set FACTS_KUBERNETES_OPENAPI to a directory holding Kubernetes ${KUBERNETES_API_SPEC.version}'s api/openapi-spec/v3 documents to check the projection byte for byte`);
-    return;
-  }
-  const documents = ["api__v1_openapi.json", "apis__apps__v1_openapi.json", "apis__batch__v1_openapi.json"].map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+  const dir = sourceOf(t, "FACTS_KUBERNETES_OPENAPI", `a directory holding Kubernetes ${KUBERNETES_API_SPEC.version}'s api/openapi-spec/v3 documents`);
+  if (!dir) return;
+  const documents = OBJECT_SOURCES.kubernetes.files.map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
   const projected = renderSpec(projectObjectSpec(documents, { api: KUBERNETES_API_SPEC.api, version: KUBERNETES_API_SPEC.version }, KUBERNETES_MAPPING));
   assert.equal(projected, readFileSync(here("../../lib/facts/spec/kubernetes-api.schema.json"), "utf8"));
 });
@@ -613,15 +624,10 @@ test("the Knative projection's metadata is from the same Kubernetes release as t
 });
 
 test("the vendored Knative projection is reproducible from Knative's CRD and Kubernetes' ObjectMeta", (t) => {
-  const crd = process.env.FACTS_KNATIVE_SERVICE_CRD;
-  const dir = process.env.FACTS_KUBERNETES_OPENAPI;
-  if (!crd || !dir) {
-    t.skip(
-      `set FACTS_KNATIVE_SERVICE_CRD to Knative ${KNATIVE_SERVING_SPEC.version}'s config/core/300-resources/service.yaml, and FACTS_KUBERNETES_OPENAPI ` +
-        `to Kubernetes ${KNATIVE_SERVING_SPEC.objectMeta.version}'s api/openapi-spec/v3 directory, to check the projection byte for byte`,
-    );
-    return;
-  }
+  const crd = sourceOf(t, "FACTS_KNATIVE_SERVICE_CRD", `Knative ${KNATIVE_SERVING_SPEC.version}'s config/core/300-resources/service.yaml`);
+  if (!crd) return;
+  const dir = sourceOf(t, "FACTS_KUBERNETES_OPENAPI", `Kubernetes ${KNATIVE_SERVING_SPEC.objectMeta.version}'s api/openapi-spec/v3 directory`);
+  if (!dir) return;
   const projected = renderSpec(projectObjectSpec([], {
     api: KNATIVE_SERVING_SPEC.api,
     version: KNATIVE_SERVING_SPEC.version,

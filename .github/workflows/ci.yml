@@ -745,10 +745,61 @@ jobs:
       - name: Every spec citation resolves in LLO, and no LLO ADR decides a cloister bead still open
         run: task lint:spec-citation lint:sibling-bead-refs
 
+  facts-checked:
+    name: facts-checked (each vendored facts projection, rebuilt from the release it records)
+    # The checks that rebuild a vendored facts projection from its source
+    # skipped without the source, so every gate skipped them, and a provider
+    # projection recorded a version it was not built from. This fetches each
+    # source at the release its projection records and runs the facts tests
+    # with FACTS_SOURCES_REQUIRED=1, under which a missing source fails.
+    needs: [lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # tofu runs each provider's own binary to read its schema. Leave it no token.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Enable corepack (provides pnpm via package.json packageManager field)
+        run: |
+          corepack enable
+          corepack prepare --activate
+
+      - name: Install Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install OpenTofu
+        # By the digest OpenTofu publishes for this release, pinned here rather
+        # than read from the release beside the archive it vouches for.
+        env:
+          TOFU_VERSION: 1.10.7
+          TOFU_SHA256: c79bb458e7d7fa08c44be98b373ab3434647598808fc2a75dc9338aef7432ae6
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/tofu.zip" "https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}/tofu_${TOFU_VERSION}_linux_amd64.zip"
+          echo "${TOFU_SHA256}  $RUNNER_TEMP/tofu.zip" | sha256sum -c -
+          unzip -q -o "$RUNNER_TEMP/tofu.zip" tofu -d "$RUNNER_TEMP/tofu"
+          echo "$RUNNER_TEMP/tofu" >> "$GITHUB_PATH"
+
+      - name: Every vendored facts projection is rebuilt from the release it records
+        run: task facts:sources:check
+
   ci-ok:
     name: ci-ok (every job passed)
     if: ${{ !cancelled() }}
-    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, plan-check-action, llo-checked, smoke-e2e]
+    needs: [lint, install-image, changes, verify, lowered-kind, lowered-knative, compose-hold, plan-check-action, llo-checked, facts-checked, smoke-e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:

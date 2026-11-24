@@ -80,6 +80,11 @@ tasks:
     cmds:
       - node gen/vendor-llo-spec.mjs --check {{.CLI_ARGS}}
 
+  facts:sources:check:
+    desc: "Fail unless every vendored facts projection (cli/lib/facts/spec/) is rebuilt byte for byte from the release it records: Kubernetes' OpenAPI documents and Knative's CRD at that release, and `tofu providers schema -json` with each provider at that version. Runs the facts tests with FACTS_SOURCES_REQUIRED=1, under which a missing source fails instead of skipping. Needs the network and OpenTofu (`tofu` on PATH, or TOFU=<path>). CI's facts-checked job runs it."
+    cmds:
+      - node gen/facts-sources.mjs --check
+
   schema-bridge:build:
     desc: "Fetch LLO's schema-bridge capnp plugins (zod + go + jsonschema) as DIGEST-PINNED published binaries (cloister-9170d0). Was `cargo build` against a SHA-pinned git dep, which sat at v0.7.9 while the fix cloister needed shipped in 0.11.3 — the regen ran green against a five-minor-stale generator and nothing reported it. Digests live in schema-bridge.lock.json and are verified on EVERY run, cached under rs/target/schema-bridge/<version>/ so a warm tree needs no network."
     cmds:

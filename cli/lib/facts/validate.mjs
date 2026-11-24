@@ -80,7 +80,12 @@ export function validateMapping(mapping, spec, objectSpecs = []) {
     if (!resources[type]) throw new Error(`mapping: unknown resource type "${type}" (${where})`);
     return resources[type].attributes;
   };
+  // A key the format does not define is refused, at every level: a mistyped
+  // `lists` would otherwise read nothing, and say nothing.
+  onlyKeys(mapping, ["provider", "types", "objects", "bindingRelations"], "the mapping");
   for (const [type, entry] of Object.entries(mapping.types ?? {})) {
+    if (!isTable(entry)) throw new Error(`mapping: ${type} must be a table`);
+    onlyKeys(entry, ENTRY_KEYS, type);
     const attributes = attrsOf(type, "not in the provider spec");
     const held = objectKind(mapping, type);
     const here = `${type}.`;
@@ -140,6 +145,8 @@ export function validateMapping(mapping, spec, objectSpecs = []) {
       checkTarget(rel, attrsOf, `${here}${rel.attr}`);
       checkScope(rel, attributes, attrsOf(rel.toType, "relation target"), `${here}${rel.attr}`);
     }
+    // After the paths are checked, so a path that is not a value is refused as that.
+    checkListKeys(type, entry);
     checkReport(type, entry, mapping.types);
   }
   const bindingList = mapping.types?.cloudflare_workers_script?.lists?.find((l) => l.path === "bindings");
@@ -172,6 +179,31 @@ function checkScope(rel, attributes, targetAttributes, from) {
 }
 
 const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** Every key a mapping entry may have, once `like` is resolved. */
+const ENTRY_KEYS = ["name", "read", "ids", "referenceAttrs", "maps", "lists", "configLists", "relations", "report", "access"];
+
+/** Keys a fact's attrs already hold, which a list read under its own name would overwrite. */
+const RESERVED_ATTRS = new Set(["ids", "maps", "references", "referenceSites", "configured", "takenFrom"]);
+
+/**
+ * A list is kept in a fact's attrs under the last segment of its path, with
+ * `<key>Withheld` beside it. Two lists under one key, a key the attrs already
+ * use, or a key a read path also writes would overwrite each other: one
+ * list's rows with the other's flag. Each is refused by name.
+ */
+function checkListKeys(type, entry) {
+  const keys = new Map();
+  for (const list of entry.lists ?? []) {
+    if (!isTable(list) || !isText(list.path)) throw new Error(`mapping: ${type} lists needs a "path" on every list`);
+    onlyKeys(list, ["path", "read", "strings"], `${type} lists`);
+    const key = list.path.split(".").pop();
+    if (keys.has(key)) throw new Error(`mapping: ${type} lists "${keys.get(key)}" and "${list.path}" would both be kept as "${key}"`);
+    if (RESERVED_ATTRS.has(key) || key.endsWith("Withheld")) throw new Error(`mapping: ${type} list "${list.path}" would be kept as "${key}", which a fact already uses`);
+    if ((entry.read ?? []).includes(key)) throw new Error(`mapping: ${type} list "${list.path}" would be kept as "${key}", which its "read" list also writes`);
+    keys.set(key, list.path);
+  }
+}
 const isText = (v) => typeof v === "string" && v !== "";
 function onlyKeys(table, allowed, where) {
   for (const key of Object.keys(table)) {
