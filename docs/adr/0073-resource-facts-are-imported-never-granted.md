@@ -380,11 +380,16 @@ version cloister picked rather than the one the cluster runs.
   mappings = ["deploy/inspect.mapping.json"]
 
   [[inspect.crds]]
-  file = "deploy/crds/rollouts.yaml"               # every environment
+  file = "deploy/crds/rollouts.yaml"                  # every environment
 
   [[inspect.crds]]
-  env = "prod"                                     # only where the plan describes prod
-  file = "deploy/crds/prod/knative-serving.yaml"
+  env = "prod"                                        # only where the plan describes prod
+  file = "deploy/crds/prod/rollouts.yaml"
+  replaces = ["argoproj.io/v1alpha1 Rollout"]         # in prod, instead of the row above
+
+  [[inspect.crds]]
+  file = "deploy/crds/knative-serving.yaml"
+  replaces = ["serving.knative.dev/v1 Service"]       # instead of cloister's projection
   ```
 
   A CRD file is the CRD as the cluster has it (`kubectl get crd <name> -o
@@ -395,12 +400,24 @@ version cloister picked rather than the one the cluster runs.
   every one. `cloister inspect --crd <file> --mapping <file>` adds files for
   one run. The plan-check Action reads them from `cluster.toml`, so CI and a
   local run check the same way.
-- **Which rows apply is stated, never decided by precedence:**
+- **A declaration wins only where it says it does.** No precedence rule
+  decides between two definitions of a kind, so each replacement is written
+  down, and a reviewer reads it in the diff:
+  - a row may replace a kind's definition above it, and lists each such kind
+    in `replaces`. Above a row for every environment are the projections
+    cloister ships. Above a row for one environment are those and every row
+    for every environment, so it replaces what applies there, in that
+    environment only;
+  - a kind a row defines that is already defined above it, and that the row
+    does not list, is refused, by name. So is a listed kind the row does not
+    define, or that nothing above it defines: a replacement that replaces
+    nothing is a mistake, not a no-op;
+  - two rows at one level (both for every environment, or both for the same
+    environment) may not define one kind, since neither is above the other;
+  - a file a flag adds (`--crd`) may only add kinds. Replacing one is declared
+    in `cluster.toml`, where the checkout carries it;
   - a row's `env` must be an environment `cluster.toml` declares. One that is
     not is refused, since a misspelled environment would otherwise never apply;
-  - a kind defined both by a row for every environment and by a row for this
-    environment is refused, by name. No precedence rule picks one: the
-    operator writes a row per environment for that kind;
   - when any row names an environment, `inspect` without `--env` is refused,
     since which CRDs apply would not be stated.
 - **That is a new field on `Cluster`**, because `cluster.toml` is the TOML form
@@ -439,25 +456,27 @@ version cloister picked rather than the one the cluster runs.
 - **Held to the same validation** when the files load. The format is closed:
   an unknown key is refused at every level, and two lists kept under one key
   are refused. A path the CRD does not have, and a read of something that is
-  not a value, are each refused by name. Every kind is defined by exactly one
-  schema: a kind that two supplied CRDs define is refused.
-- **What a checkout may change.** It may add kinds. Its CRD for a kind
-  cloister ships (a Knative Service) replaces the shipped projection, because
-  the cluster's version is the one to check against. The shipped entries for
-  that kind are then validated against the replacement, and a path one reads
-  that the cluster's CRD does not have refuses the run, by name: the entry
-  cannot be read against that version, and checking it against another would
-  check something else. It may not replace a shipped entry. A plan check is a
-  gate, and an entry decides what the check looks at, so changing how a
-  shipped kind is read is a change to cloister.
+  not a value, are each refused by name. Once the declared replacements are
+  made, every kind is defined by exactly one schema, and read by exactly one
+  entry: two entries for one kind are refused.
+- **What a checkout may change.** It may add kinds. It may replace the
+  projection of a kind cloister ships (a Knative Service) with its own CRD, by
+  listing the kind in `replaces`, because the cluster's version is the one to
+  check against. The shipped entries for that kind are then validated against
+  the replacement, and a path one reads that the cluster's CRD does not have
+  refuses the run, by name: the entry cannot be read against that version,
+  and checking it against another would check something else. It may not
+  replace a shipped entry. A plan check is a gate, and an entry decides what
+  the check looks at, so changing how a shipped kind is read is a change to
+  cloister.
 - **`standsFor` stays closed.** A shipped Service entry stands for the shipped
   workload kinds it names, and a checkout kind is not added to them, since
   that would change how a shipped kind is read. A Service whose selector
   matches a checkout kind's pods resolves to nothing, and what dials it is
   reported unknown, never guessed.
 - **The report says what checked each kind**: a shipped schema, or a file in
-  the checkout. An entry the checkout adds is listed, and so is a file a flag
-  added, so a reviewer sees the check grow.
+  the checkout, and which definition it replaced. An entry the checkout adds
+  is listed, and so is a file a flag added, so a reviewer sees the check grow.
 - **Not read through mache.** mache also reads JSON by a declarative schema,
   but it neither checks a path against the source's published schema nor
   obeys a document's sensitivity markers, and both are what a fact rests on.
