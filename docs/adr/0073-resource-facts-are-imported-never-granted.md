@@ -336,6 +336,55 @@ them back:
   and a plan does not state it, so it is unknown. A sort list may be empty, as
   long as some value is sorted.
 
+**Amendment (2026-11-24, proposed): a checkout supplies the CRDs, and the
+entries, for kinds cloister does not ship.** A cluster runs custom resources
+cloister has never heard of: an operator's own, or a vendor's. Shipping a
+projection for each would tie every one to a cloister release, and to the
+version cloister picked rather than the one the cluster runs.
+
+- **The checkout names its CRDs and its mapping files**, in `cluster.toml`:
+
+  ```toml
+  [inspect]
+  crds = ["deploy/crds/rollouts.yaml"]
+  mappings = ["deploy/inspect.mapping.json"]
+  ```
+
+  A CRD file is the CRD as the cluster has it (`kubectl get crd <name> -o
+  yaml`, or the vendor's release file). Cloister never asks a cluster: the
+  operator exports the CRD, as they render a plan. `cloister inspect --crd
+  <file> --mapping <file>` adds files for one run. The plan-check Action reads
+  them from `cluster.toml`, so CI and a local run check the same way.
+- **A supplied CRD is projected when `inspect` runs**, by the code that
+  projects Knative's today, which moves from `gen/` into the CLI. Each served
+  version is a kind. Its metadata is the ObjectMeta of the Kubernetes release
+  cloister ships.
+- **The checkout's entries say what each kind means.** A CRD gives a kind's
+  shape, not its meaning: that one field holds a pod template, or that the
+  kind is a workload at all. Reading meaning from shape would be a guess, so
+  an entry says it, in the format the shipped mappings use. An entry may name
+  where its pod template is (`podTemplate: "spec.template"`). Its containers,
+  env, ports and labels are then read as a Deployment's are, and its report
+  and bundle are what the entry states.
+- **Held to the same validation** when the files load. A path the CRD does not
+  have, a read of something that is not a value, and an unknown key are each
+  refused by name. A kind that two supplied CRDs define is refused.
+- **What a checkout may change.** It may add kinds. Its CRD for a kind
+  cloister ships (a Knative Service) replaces the shipped projection, because
+  the cluster's version is the one to check against. It may not replace a
+  shipped entry. A plan check is a gate, and an entry decides what the check
+  looks at, so changing how a shipped kind is read is a change to cloister.
+- **The report says what checked each kind**: a shipped schema, or a file in
+  the checkout. An entry the checkout adds is listed, so a reviewer sees the
+  check grow.
+- **Not read through mache.** mache also reads JSON by a declarative schema,
+  but it neither checks a path against the source's published schema nor
+  obeys a document's sensitivity markers, and both are what a fact rests on.
+
+Providers are the same rule, later: a checkout's provider projection, made by
+`gen/facts-spec.mjs` from `tofu providers schema -json`, for a type cloister
+does not ship.
+
 ## What exists today
 
 | Part | State |
@@ -354,7 +403,7 @@ them back:
 | Objects a resource holds whole: `kubernetes_manifest` objects of the same six kinds, checked against Kubernetes' published schema (amendment of 2026-11-23) | built |
 | A custom resource held whole, checked against its CRD: Knative Services (amendment of 2026-11-24) | built |
 | Other kinds held whole (an Ingress; other custom resources) | not built; each is a mapping entry and a projected schema |
-| Mappings and schemas a checkout supplies, for a CRD or provider cloister does not ship | not built |
+| CRDs and entries a checkout supplies, for kinds cloister does not ship (amendment of 2026-11-24, proposed) | not built |
 | Other providers | not built |
 | Target resolution from facts; emitting a policy fragment | not built; each needs its own decision |
 
