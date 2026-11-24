@@ -334,8 +334,10 @@ close before the runs are stopped, and if `up` is killed the OS closes them.
 run in reverse order: the host runtime cancels its run through LLO, which kills
 the worker's process group. If `up` is killed with `kill -9`, each host runtime
 sees its stdin close and stops its run. A second signal while stopping reports
-progress, and a third SIGKILLs the host runtimes. Their krun workers can then
-outlive them until ley-line-open-f963e6. If
+progress, and a third SIGKILLs the host runtimes. A krun worker from LLO 0.31
+or later exits with its host runtime, SIGKILL included, and takes its VM with it
+(ley-line-open-f963e6). One installed before that can outlive it, so re-run
+`cloister runtime install` after upgrading. If
 any run ends on its own, the rest are stopped and `up` exits non-zero, naming
 the bundle and its status. Kubernetes-placed bundles are skipped with a pointer
 to `cluster k8s`. Every run is also stopped at its wall-clock ceiling, which is

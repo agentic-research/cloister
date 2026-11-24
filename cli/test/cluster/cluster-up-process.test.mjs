@@ -172,7 +172,7 @@ test("kill -9 of up: each host runtime sees stdin EOF and stops", async () => {
   }
 });
 
-test("a third signal SIGKILLs host runtimes that will not stop, and says their VMs may survive (f963e6)", async () => {
+test("a third signal SIGKILLs host runtimes that will not stop, and says what a pre-0.31 worker can leave running (f963e6)", async () => {
   const up = startUp({ FAKE_DOLT: "ignore-term", FAKE_ORDERS: "ignore-term" });
   try {
     await up.waitFor(/all bundles bound/);
@@ -184,7 +184,7 @@ test("a third signal SIGKILLs host runtimes that will not stop, and says their V
     up.child.kill("SIGINT");
     const { code } = await up.exited;
     assert.equal(code, 1);
-    assert.match(up.out.stderr, /SIGKILLed host runtimes .*krun workers — the VMs — may STILL BE RUNNING.*ley-line-open-f963e6/s);
+    assert.match(up.out.stderr, /SIGKILLed host runtimes .*LLO 0\.31 or later exits with its host runtime.*ley-line-open-f963e6.*runtime install/s);
     assert.ok(await allDead(pids));
   } finally {
     up.child.kill("SIGKILL");

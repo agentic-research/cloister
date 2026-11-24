@@ -138,9 +138,10 @@ When the VMs are, and are not, cleaned up:
   - A third signal makes `up` SIGKILL the host runtimes, and `up` says so.
   - A host runtime killed with `kill -9` directly.
 
-  In both cases the krun workers can outlive their host runtime, because a
-  worker does not notice its parent dying until ley-line-open-f963e6. Check
-  `ps` for `leyline-krun-worker` after such a stop.
+  In both cases a krun worker from LLO 0.31 or later exits with its host
+  runtime and takes its VM with it (ley-line-open-f963e6). One installed before
+  that can outlive it: check `ps` for `leyline-krun-worker` after such a stop,
+  and re-run `cloister runtime install`.
 
 ## The negative check
 

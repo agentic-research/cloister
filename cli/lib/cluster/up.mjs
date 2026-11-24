@@ -140,8 +140,10 @@ export const STOP_SIGNALS = Object.freeze(["SIGINT", "SIGTERM", "SIGHUP", "SIGQU
  *   - a second signal during teardown does not kill `up`; it prints which
  *     bundles are still stopping. A THIRD signal SIGKILLs the remaining host
  *     runtimes (ADR-0071's escalation rule: a repeated signal, never a
- *     timeout) and says, loudly, that their VM workers may survive them until
- *     ley-line-open-f963e6.
+ *     timeout). A krun worker from LLO 0.31 on exits when its host runtime
+ *     does, SIGKILL included, and takes its VM with it (ley-line-open-f963e6);
+ *     one installed before that can survive it, and the message says how to
+ *     check.
  *   - if `up` itself dies (SIGKILL, crash), each host runtime sees EOF on the
  *     stdin pipe `up` holds open and stops its run (`run --stop-on-stdin-eof`).
  *   - any started run that ends on its own — during a later bundle's start,
@@ -216,8 +218,9 @@ export async function clusterUp({ root, env, deps = {} }) {
     }
     errLog(
       `cloister cluster up: SIGKILLed host runtimes ${left.map((run) => `${run.bundle} (pid ${run.child.pid})`).join(", ") || "none"}. ` +
-        `Their krun workers — the VMs — may STILL BE RUNNING: a worker does not notice its ` +
-        `host runtime dying until ley-line-open-f963e6. Check \`ps\` for leyline-krun-worker.`,
+        `A krun worker from LLO 0.31 or later exits with its host runtime and takes its VM ` +
+        `with it (ley-line-open-f963e6). One installed before that can still be running: ` +
+        `check \`ps\` for leyline-krun-worker, and re-run \`cloister runtime install\`.`,
     );
   };
   const onSignal = (sig) => {
@@ -228,7 +231,7 @@ export async function clusterUp({ root, env, deps = {} }) {
     } else if (signalCount === 2) {
       errLog(
         `cloister cluster up: ${sig} again: still stopping ${describePending()}. ` +
-          `Waiting for them; one more signal SIGKILLs the host runtimes (their VMs may then survive — ley-line-open-f963e6).`,
+          `Waiting for them; one more signal SIGKILLs the host runtimes.`,
       );
     } else if (!forced) {
       forceKill();
