@@ -342,6 +342,116 @@
     },
     "kubernetes_manifest v1 Namespace": {
       "like": "kubernetes_namespace_v1"
+    },
+    "kubernetes_manifest serving.knative.dev/v1 Service": {
+      "name": "metadata.name",
+      "read": [
+        "metadata.namespace"
+      ],
+      "maps": [
+        "metadata.labels"
+      ],
+      "lists": [
+        {
+          "path": "spec.template.spec.containers",
+          "read": [
+            "name",
+            "image"
+          ],
+          "strings": [
+            "args",
+            "command"
+          ]
+        },
+        {
+          "path": "spec.template.spec.containers.env",
+          "read": [
+            "name",
+            "value",
+            "valueFrom.secretKeyRef.name",
+            "valueFrom.secretKeyRef.key"
+          ]
+        },
+        {
+          "path": "spec.template.spec.containers.ports",
+          "read": [
+            "name",
+            "containerPort"
+          ]
+        }
+      ],
+      "report": {
+        "section": "Knative services",
+        "show": [
+          "metadata.namespace"
+        ],
+        "hosts": [
+          "{name}.{metadata.namespace}.svc.cluster.local",
+          "{name}.{metadata.namespace}.svc"
+        ],
+        "dials": [
+          {
+            "list": "env",
+            "value": "value",
+            "label": "name",
+            "prefix": "env"
+          },
+          {
+            "list": "containers",
+            "strings": "args",
+            "prefix": "args"
+          },
+          {
+            "list": "containers",
+            "strings": "command",
+            "prefix": "command"
+          }
+        ],
+        "bundle": {
+          "placement": "knative",
+          "runs": "service",
+          "image": {
+            "list": "containers",
+            "value": "image"
+          },
+          "args": {
+            "list": "containers",
+            "strings": "args"
+          },
+          "command": {
+            "list": "containers",
+            "strings": "command"
+          },
+          "env": {
+            "list": "env",
+            "name": "name",
+            "value": "value",
+            "secret": "valueFrom.secretKeyRef.name",
+            "secretVersion": "valueFrom.secretKeyRef.key"
+          },
+          "ports": {
+            "list": "ports",
+            "name": "name",
+            "port": "containerPort",
+            "default": {
+              "name": "http1",
+              "port": 8080
+            }
+          },
+          "wires": {
+            "http1": "art.http",
+            "h2c": "art.http2"
+          },
+          "exposure": {
+            "attr": "metadata.labels",
+            "key": "networking.knative.dev/visibility",
+            "cluster": [
+              "cluster-local"
+            ],
+            "edge": []
+          }
+        }
+      }
     }
   }
 }

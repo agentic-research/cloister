@@ -186,10 +186,11 @@ function bundleOf(fact, rule, facts, withRun, addressed) {
  */
 function exposureOf(fact, rule) {
   if (!rule) return null;
-  const value = fact.attrs[rule.attr];
+  // With a key, the setting is one entry of a map the entry reads (a label).
+  const value = rule.key === undefined ? fact.attrs[rule.attr] : fact.attrs.maps?.[rule.attr]?.[rule.key];
   const setting = typeof value === "string" ? value : "";
   const expose = rule.cluster.includes(setting) ? "cluster" : rule.edge.includes(setting) ? "edge" : "";
-  return { attr: rule.attr, setting, expose };
+  return { attr: rule.key === undefined ? rule.attr : `${rule.attr}["${rule.key}"]`, setting, expose };
 }
 
 /**

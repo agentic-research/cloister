@@ -1393,7 +1393,12 @@ test("a mapping's exposure block names a read attribute and sorts each value onc
   };
   edited(() => {})();
   assert.throws(edited((e) => { e.attr = "uri_scheme"; }), /exposure needs an "attr" that is in the entry's "read" list/);
-  assert.throws(edited((e) => { e.edge = []; }), /exposure needs a non-empty "edge" list of values/);
+  // A value may mean only one of the two (a label that can only make a service
+  // cluster-local), but a list must be a list, and some value must be sorted.
+  assert.doesNotThrow(edited((e) => { e.edge = []; }));
+  assert.throws(edited((e) => { e.edge = "INGRESS_TRAFFIC_ALL"; }), /exposure needs "edge" to be a list of values/);
+  assert.throws(edited((e) => { e.edge = []; e.cluster = []; }), /exposure sorts no value as "cluster" or "edge"/);
+  assert.throws(edited((e) => { e.key = "visibility"; }), /exposure with a "key" needs an "attr" that is one of the entry's "maps"/);
   assert.throws(edited((e) => { e.edge.push("INGRESS_TRAFFIC_INTERNAL_ONLY"); }), /exposure lists one value as both "cluster" and "edge"/);
   assert.throws(edited((e) => { e.other = 1; }), /exposure has unknown key "other"/);
 });

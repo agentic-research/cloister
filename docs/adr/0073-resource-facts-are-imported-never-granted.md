@@ -309,6 +309,33 @@ provider's typed resource:
   marker, for every mapping. A manifest makes the case common, but any path
   two levels under a marked block could reach it.
 
+**Amendment (2026-11-24): a custom resource is checked against its CRD.** A
+Knative Service (`serving.knative.dev/v1 Service`) is a custom resource.
+Kubernetes' own documents do not define it; its CustomResourceDefinition does,
+in `openAPIV3Schema`. Cloister places Knative Services itself, so it reads
+them back:
+
+- **A CRD is a published schema.** `gen/facts-spec.mjs --api` reads one (YAML)
+  as an input. Each version it serves is a kind, and the projection holds the
+  kinds the mapping reads.
+- **Its metadata is Kubernetes'.** A CRD may not describe `metadata`: every
+  object's is the API server's ObjectMeta. That part is projected from a
+  Kubernetes OpenAPI document, and the projection records which release
+  (`objectMeta`). A test holds it to the release of the Kubernetes projection.
+- **One projection per published source**: Kubernetes 1.37.0's kinds, and
+  Knative Serving 1.24.0's Service. Every kind the mapping reads is defined by
+  exactly one. The validator refuses a kind in none, and a kind in two.
+- **A Knative Service is a workload placed `knative`, and its own address**
+  (`<name>.<namespace>.svc.cluster.local`, and `.svc`). Its one port's name is
+  its protocol (`http1` or `h2c`), so the protocol is read, not taken by
+  convention. With no port declared it is served on 8080 over `http1`, which
+  the draft says was assumed, as for Cloud Run.
+- **Exposure may be one key of a map the entry reads**: here the
+  `networking.knative.dev/visibility` label. `cluster-local` sorts as cluster.
+  No value sorts as edge: with no label, the cluster's own default decides,
+  and a plan does not state it, so it is unknown. A sort list may be empty, as
+  long as some value is sorted.
+
 ## What exists today
 
 | Part | State |
@@ -325,7 +352,9 @@ provider's typed resource:
 | Invoker evidence listing (`publicly invocable`, or unknown) | built; member rows are non-authoritative |
 | Kubernetes types: Deployments, StatefulSets, DaemonSets, Jobs, Services and Namespaces (amendment of 2026-11-19) | built; own mapping and spec |
 | Objects a resource holds whole: `kubernetes_manifest` objects of the same six kinds, checked against Kubernetes' published schema (amendment of 2026-11-23) | built |
-| Other kinds held whole (an Ingress; a custom resource, such as a Knative Service) | not built; each is a mapping entry and a projected schema |
+| A custom resource held whole, checked against its CRD: Knative Services (amendment of 2026-11-24) | built |
+| Other kinds held whole (an Ingress; other custom resources) | not built; each is a mapping entry and a projected schema |
+| Mappings and schemas a checkout supplies, for a CRD or provider cloister does not ship | not built |
 | Other providers | not built |
 | Target resolution from facts; emitting a policy fragment | not built; each needs its own decision |
 

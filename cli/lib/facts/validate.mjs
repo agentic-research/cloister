@@ -38,13 +38,15 @@ function scalar(attributes, path, label) {
 /**
  * Throws by name on the first violation.
  *
- * `objectSpec` is the projection of the published schema of the objects a
+ * `objectSpecs` are the projections of the published schemas of the objects a
  * resource holds whole (a mapping's `objects`; ADR-0073, amendment of
  * 2026-11-23). A type that reads such an object is checked against it, and
  * the declaration itself against the provider's schema: the attribute that
  * holds the object must be one the provider leaves untyped.
  */
-export function validateMapping(mapping, spec, objectSpec) {
+export function validateMapping(mapping, spec, objectSpecs = []) {
+  // One projection or several (Kubernetes' own kinds, a CRD's): a kind must be in exactly one.
+  const specs = Array.isArray(objectSpecs) ? objectSpecs : [objectSpecs];
   const resources = spec?.resources ?? {};
   const objects = mapping.objects ?? {};
   if (!isTable(objects)) throw new Error("mapping: \"objects\" must be a table");
@@ -68,9 +70,12 @@ export function validateMapping(mapping, spec, objectSpec) {
       if (held.values.length !== held.object.by.length || held.values.some((v) => v === "")) {
         throw new Error(`mapping: type "${type}" must name ${held.resourceType} and its ${held.object.by.join(" and ")}, one space apart`);
       }
-      const found = objectSpec?.objects?.[held.kind];
-      if (!found) throw new Error(`mapping: type "${type}" reads a kind, ${held.kind}, that the ${objectSpec?.api ?? "object"} spec does not define`);
-      return found.attributes;
+      const found = specs.filter((s) => Object.hasOwn(s?.objects ?? {}, held.kind));
+      if (found.length === 0) {
+        throw new Error(`mapping: type "${type}" reads a kind, ${held.kind}, that no object spec defines (${specs.map((s) => s?.api).join(", ") || "none given"})`);
+      }
+      if (found.length > 1) throw new Error(`mapping: kind ${held.kind} is defined by more than one object spec (${found.map((s) => s.api).join(", ")})`);
+      return found[0].objects[held.kind].attributes;
     }
     if (!resources[type]) throw new Error(`mapping: unknown resource type "${type}" (${where})`);
     return resources[type].attributes;
@@ -281,19 +286,27 @@ function checkReport(type, entry, types = {}) {
       // `exposure`: the attribute that says whether the workload can be
       // reached from outside its network, and which of its values mean which.
       // It is what a port's `expose` is compared with (ADR-0074).
+      // With a `key`, the setting is one key of a map the entry reads (a
+      // label). A value may mean only one of the two, or none: a Knative
+      // Service's visibility label can make it cluster-local, and no value of
+      // it says it is public.
       if (bundle.exposure !== undefined) {
         const { exposure } = bundle;
-        onlyKeys(exposure, ["attr", "cluster", "edge"], `${where} exposure`);
-        if (!isTable(exposure) || !read.includes(exposure.attr)) {
-          throw new Error(`mapping: ${where} exposure needs an "attr" that is in the entry's "read" list`);
+        if (!isTable(exposure)) throw new Error(`mapping: ${where} exposure must be a table`);
+        onlyKeys(exposure, ["attr", "key", "cluster", "edge"], `${where} exposure`);
+        if (exposure.key === undefined ? !read.includes(exposure.attr) : !isText(exposure.key) || !(entry.maps ?? []).includes(exposure.attr)) {
+          throw new Error(exposure.key === undefined
+            ? `mapping: ${where} exposure needs an "attr" that is in the entry's "read" list`
+            : `mapping: ${where} exposure with a "key" needs an "attr" that is one of the entry's "maps"`);
         }
         const values = [];
         for (const key of ["cluster", "edge"]) {
-          if (!Array.isArray(exposure[key]) || exposure[key].length === 0 || !exposure[key].every(isText)) {
-            throw new Error(`mapping: ${where} exposure needs a non-empty "${key}" list of values`);
+          if (!Array.isArray(exposure[key]) || !exposure[key].every(isText)) {
+            throw new Error(`mapping: ${where} exposure needs "${key}" to be a list of values`);
           }
           values.push(...exposure[key]);
         }
+        if (values.length === 0) throw new Error(`mapping: ${where} exposure sorts no value as "cluster" or "edge"`);
         if (new Set(values).size !== values.length) {
           throw new Error(`mapping: ${where} exposure lists one value as both "cluster" and "edge"`);
         }

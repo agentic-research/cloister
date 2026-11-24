@@ -30,6 +30,7 @@ import kubernetesMapping from "./mappings/kubernetes.json" with { type: "json" }
 import cloudflareSpec from "./spec/cloudflare.schema.json" with { type: "json" };
 import googleSpec from "./spec/google.schema.json" with { type: "json" };
 import kubernetesApiSpec from "./spec/kubernetes-api.schema.json" with { type: "json" };
+import knativeServingSpec from "./spec/knative-serving.schema.json" with { type: "json" };
 import kubernetesSpec from "./spec/kubernetes.schema.json" with { type: "json" };
 
 import { isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
@@ -48,10 +49,13 @@ export const GOOGLE_SPEC = Object.freeze(structuredClone(googleSpec));
 validateMapping(GOOGLE_MAPPING, GOOGLE_SPEC);
 export const KUBERNETES_MAPPING = Object.freeze(readMapping(kubernetesMapping));
 export const KUBERNETES_SPEC = Object.freeze(structuredClone(kubernetesSpec));
-// The objects a `kubernetes_manifest` holds are checked against Kubernetes'
-// own published schema, which the provider leaves to the API server.
+// The objects a `kubernetes_manifest` holds are checked against the published
+// schema of their API, which the provider leaves to the API server:
+// Kubernetes' own for its kinds, and a custom resource's CRD for that kind.
 export const KUBERNETES_API_SPEC = Object.freeze(structuredClone(kubernetesApiSpec));
-validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_API_SPEC);
+export const KNATIVE_SERVING_SPEC = Object.freeze(structuredClone(knativeServingSpec));
+export const KUBERNETES_OBJECT_SPECS = Object.freeze([KUBERNETES_API_SPEC, KNATIVE_SERVING_SPEC]);
+validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_OBJECT_SPECS);
 
 /** Every mapping, with the source name its facts carry. */
 const MAPPINGS = [CLOUDFLARE_MAPPING, GOOGLE_MAPPING, KUBERNETES_MAPPING];
