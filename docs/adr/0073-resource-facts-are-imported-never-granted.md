@@ -346,15 +346,31 @@ version cloister picked rather than the one the cluster runs.
 
   ```toml
   [inspect]
-  crds = ["deploy/crds/rollouts.yaml"]
   mappings = ["deploy/inspect.mapping.json"]
+
+  [[inspect.crds]]
+  file = "deploy/crds/rollouts.yaml"               # every environment
+
+  [[inspect.crds]]
+  env = "prod"                                     # only where the plan describes prod
+  file = "deploy/crds/prod/knative-serving.yaml"
   ```
 
   A CRD file is the CRD as the cluster has it (`kubectl get crd <name> -o
   yaml`, or the vendor's release file). Cloister never asks a cluster: the
-  operator exports the CRD, as they render a plan. `cloister inspect --crd
-  <file> --mapping <file>` adds files for one run. The plan-check Action reads
-  them from `cluster.toml`, so CI and a local run check the same way.
+  operator exports the CRD, as they render a plan. A CRD belongs to a
+  cluster, and `cluster.toml` names clusters by environment, so a CRD row may
+  name its environment, as a placement row does; with none it applies to
+  every one. `cloister inspect --crd <file> --mapping <file>` adds files for
+  one run. The plan-check Action reads them from `cluster.toml`, so CI and a
+  local run check the same way.
+- **That is a new field on `Cluster`**, because `cluster.toml` is the TOML form
+  of `cluster.capnp`, and its parser refuses a key the schema does not define:
+  a mistyped key is refused, never dropped. The field is added at the next
+  ordinal, so every existing `cluster.toml` stays valid, and the generated zod,
+  Go and published schema follow from it. Declaring the files there, rather
+  than only in flags, is what makes the checkout carry its own check: flags
+  alone would leave the list in every caller, free to differ.
 - **A supplied CRD is projected when `inspect` runs**, by the code that
   projects Knative's today, which moves from `gen/` into the CLI. Each served
   version is a kind. Its metadata is the ObjectMeta of the Kubernetes release
