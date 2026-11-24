@@ -8,6 +8,27 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister inspect` never reads a withheld value as absent (ADR-0073 amendment)
+
+- A list row keeps the names of the fields the document marks sensitive. A
+  withheld port is not replaced by the default port, and a port whose name is
+  withheld is not given the default protocol. The draft says each was not read.
+- A row, or an object in one, marked sensitive whole is withheld at every level
+  of a list's path. Markers that are not an object mark the whole resource.
+- A name the mapping says where to find, withheld or absent, is no name, rather
+  than the Terraform label.
+- What an expression names is sorted totally, so a value taken from something
+  unclassified is never read as a constant. Resource names are Unicode
+  identifiers. A resource type with a space in it is skipped.
+- A mapping refuses a key its format does not define, at every level, and two
+  lists kept under one key. Mappings and projections are frozen.
+- A fact names the provider of the mapping that read it. An entry no loaded
+  mapping holds is refused, where it was labeled Cloudflare.
+- The vendored Cloudflare projection is provider 5.29.0's, and now says so (it
+  said 5.23.0). CI's `facts-checked` job rebuilds every vendored projection from
+  the release it records (`task facts:sources:check`), and the facts tests fail
+  there, rather than skip, without a source.
+
 ### 2026-11 — `cloister inspect` reads Knative Services (ADR-0073 amendment)
 
 - A Knative Service written as `kubernetes_manifest` (`serving.knative.dev/v1

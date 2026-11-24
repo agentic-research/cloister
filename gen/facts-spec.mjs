@@ -7,7 +7,7 @@
 // vendoring the whole 2.5 MB document. Generated, never hand-edited:
 //
 //   node gen/facts-spec.mjs <providers-schema.json> \
-//     --provider cloudflare/cloudflare --version 5.23.0 \
+//     --provider cloudflare/cloudflare --version 5.29.0 \
 //     --mapping cli/lib/facts/mappings/cloudflare.json \
 //     --out cli/lib/facts/spec/cloudflare.schema.json
 //

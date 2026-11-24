@@ -85,7 +85,14 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
     const ports = [];
     // What the inputs say about reaching it from outside decides `expose`.
     const exposed = w.bundle.exposure?.expose ?? "";
+    if (w.bundle.portsWithheld) {
+      notes.push(`"${w.name}": a port it declares is marked sensitive and was not read; no port is assumed in its place`);
+    }
     for (const p of w.bundle.ports) {
+      if (p.nameWithheld) {
+        notes.push(`"${w.name}": port ${p.port}'s name, which says how it is served, is marked sensitive and was not read; it is not drafted`);
+        continue;
+      }
       if (p.appProtocol === "") {
         notes.push(`"${w.name}": port ${p.port} is served as "${p.name}", which has no appProtocol here; it is not drafted`);
         continue;
