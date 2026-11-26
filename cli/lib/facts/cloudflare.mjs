@@ -30,10 +30,11 @@ import kubernetesMapping from "./mappings/kubernetes.json" with { type: "json" }
 import cloudflareSpec from "./spec/cloudflare.schema.json" with { type: "json" };
 import googleSpec from "./spec/google.schema.json" with { type: "json" };
 import kubernetesApiSpec from "./spec/kubernetes-api.schema.json" with { type: "json" };
+import kubernetesObjectMeta from "./spec/kubernetes-object-meta.schema.json" with { type: "json" };
 import knativeServingSpec from "./spec/knative-serving.schema.json" with { type: "json" };
 import kubernetesSpec from "./spec/kubernetes.schema.json" with { type: "json" };
 
-import { deepFreeze, isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
+import { deepFreeze, entryOf, isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
 import { expandMapping, heldObject, objectKind, objectType } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
 import { SITES, configuredRows, expressionSources } from "./terraform.mjs";
@@ -59,14 +60,20 @@ export const KUBERNETES_SPEC = readSpec(kubernetesSpec);
 export const KUBERNETES_API_SPEC = readSpec(kubernetesApiSpec);
 export const KNATIVE_SERVING_SPEC = readSpec(knativeServingSpec);
 export const KUBERNETES_OBJECT_SPECS = Object.freeze([KUBERNETES_API_SPEC, KNATIVE_SERVING_SPEC]);
+// ObjectMeta as Kubernetes defines it, for a CRD a checkout supplies: a CRD
+// does not describe its kinds' metadata (see object-spec.mjs).
+export const KUBERNETES_OBJECT_META = readSpec(kubernetesObjectMeta);
 validateMapping(KUBERNETES_MAPPING, KUBERNETES_SPEC, KUBERNETES_OBJECT_SPECS);
 
-/** Every mapping, with the source name its facts carry. */
-const MAPPINGS = [CLOUDFLARE_MAPPING, GOOGLE_MAPPING, KUBERNETES_MAPPING];
+/**
+ * The source each entry's facts carry: the provider of the mapping that holds
+ * the entry. An entry a checkout supplies is held by the mapping whose
+ * resource holds its objects, so its facts carry that provider too.
+ */
 const SOURCE_OF = new WeakMap();
-for (const mapping of MAPPINGS) {
-  for (const entry of Object.values(mapping.types)) SOURCE_OF.set(entry, `terraform:${mapping.provider.split("/").pop()}`);
-}
+const registerSources = (mapping) => {
+  for (const entry of Object.values(mapping.types)) if (!SOURCE_OF.has(entry)) SOURCE_OF.set(entry, `terraform:${mapping.provider.split("/").pop()}`);
+};
 
 const WORKER_TYPE = "cloudflare_workers_script";
 const BINDING_RELATIONS = CLOUDFLARE_MAPPING.bindingRelations;
@@ -77,19 +84,37 @@ const BINDING_RELATIONS = CLOUDFLARE_MAPPING.bindingRelations;
  */
 const own = (table, key) => (typeof key === "string" && Object.hasOwn(table, key) ? table[key] : undefined);
 const relationsFor = (binding) => own(BINDING_RELATIONS, binding?.type) ?? [];
-/** The mapping entry for a resource type, or undefined when no mapping has it. */
-export const mappedType = (type) => {
-  for (const mapping of MAPPINGS) {
-    const entry = own(mapping.types, type);
-    if (entry) return entry;
-  }
-  return undefined;
-};
-/** Every `[type, entry]` across all mappings, in declaration order. */
-export const mappedEntries = () => MAPPINGS.flatMap((mapping) => Object.entries(mapping.types));
+/**
+ * The mappings one run reads with, validated before they are put here.
+ * Cloister's own (SHIPPED) are the default. A checkout's entries make another
+ * set, with them added (checkout.mjs). Each fact holds the entry that read it
+ * (entryOf), so what follows from a fact never looks its type up again.
+ */
+export function makeRegistry(mappings) {
+  const list = Object.freeze([...mappings]);
+  for (const mapping of list) registerSources(mapping);
+  const mappedType = (type) => {
+    for (const mapping of list) {
+      const entry = own(mapping.types, type);
+      if (entry) return entry;
+    }
+    return undefined;
+  };
+  return Object.freeze({
+    mappings: list,
+    /** The mapping entry for a resource type, or undefined when no mapping has it. */
+    mappedType,
+    /** Every `[type, entry]` across all mappings, in declaration order. */
+    mappedEntries: () => list.flatMap((mapping) => Object.entries(mapping.types)),
+    /** True for a type that reads an object a resource holds whole (see mapping.mjs). */
+    readsHeldObject: (type) => list.some((mapping) => objectKind(mapping, type)?.object !== undefined),
+    entryFor: (resource) => entryIn(list, mappedType, resource),
+  });
+}
 
-/** True for a type that reads an object a resource holds whole (see mapping.mjs). */
-export const readsHeldObject = (type) => MAPPINGS.some((mapping) => objectKind(mapping, type)?.object !== undefined);
+/** Cloister's own mappings, read when a checkout supplies none. */
+export const SHIPPED = makeRegistry([CLOUDFLARE_MAPPING, GOOGLE_MAPPING, KUBERNETES_MAPPING]);
+export const { mappedType, mappedEntries, readsHeldObject, entryFor } = SHIPPED;
 
 /**
  * The entry that reads a resource, and the resource as that entry reads it.
@@ -106,8 +131,8 @@ export const readsHeldObject = (type) => MAPPINGS.some((mapping) => objectKind(m
  * (absent, not text, or marked sensitive) is counted as the resource type
  * with "(kind not stated)".
  */
-export function entryFor(resource) {
-  for (const mapping of MAPPINGS) {
+function entryIn(mappings, mappedTypeIn, resource) {
+  for (const mapping of mappings) {
     const object = heldObject(mapping, resource.type);
     if (!object) continue;
     const value = own(resource.values, object.attr);
@@ -134,7 +159,7 @@ export function entryFor(resource) {
   // A document's type is a Terraform identifier. One with a space would be
   // read as a kind of held object without the object saying what it is.
   if (/\s/.test(resource.type)) return { skipped: resource.type };
-  const entry = mappedType(resource.type);
+  const entry = mappedTypeIn(resource.type);
   return entry ? { entry, resource } : { skipped: resource.type };
 }
 /** Fact types that count as a Worker when a relation targets a Worker script. */
@@ -359,7 +384,7 @@ export function importResource(resource, entry, references, expressions) {
     type: resource.type,
     name: typeof named === "string" ? named : "",
     attrs,
-  });
+  }, { entry });
 }
 
 /** Resource type → mapping entry. A type not listed here produces no fact. */
@@ -367,7 +392,7 @@ export const CLOUDFLARE_TYPES = CLOUDFLARE_MAPPING.types;
 
 /** The value a fact exposes for a mapped join attribute, or undefined. */
 function joinValue(fact, attr) {
-  const entry = mappedType(fact.type);
+  const entry = entryOf(fact);
   if (fact.attrs.ids?.[attr] !== undefined) return fact.attrs.ids[attr];
   if (fact.attrs[attr] !== undefined) return fact.attrs[attr];
   if (entry?.name === attr || (NAME_IS_SCRIPT_NAME.has(fact.type) && attr === "script_name")) return fact.name || undefined;
@@ -471,7 +496,7 @@ function resolveByReference(fact, relation, facts) {
  * references (see resolveByReference). A state document never uses references.
  */
 export function resolveRelations(fact, facts, kind) {
-  const entry = mappedType(fact.type);
+  const entry = entryOf(fact);
   return (entry?.relations ?? []).map((relation) => {
     const value = joinValue(fact, relation.attr);
     let to = isScoped(relation) ? resolveScoped(value, fact, relation, facts) : resolveOne(value, relation, facts);

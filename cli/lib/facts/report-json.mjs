@@ -109,5 +109,9 @@ export function declaredReport(report) {
     unlisted: report.unlisted.map(({ name, section }) => ({ name, section })),
     findings: report.findings.map(declaredFinding),
     skipped: Object.entries(report.skipped ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([type, count]) => ({ type, count })),
+    checkout: {
+      files: (report.checkout?.files ?? []).map(({ file, holds, from, env, applies }) => ({ file, holds, from, env, applies })),
+      kinds: (report.checkout?.kinds ?? []).map(({ kind, schema, replaced, entry }) => ({ kind, schema, replaced, entry })),
+    },
   };
 }

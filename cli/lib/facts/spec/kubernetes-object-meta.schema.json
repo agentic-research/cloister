@@ -1,0 +1,165 @@
+{
+  "api": "kubernetes",
+  "schemas": {
+    "io.k8s.apimachinery.pkg.apis.meta.v1.FieldsV1": {
+      "type": "object"
+    },
+    "io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsEntry": {
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "fieldsType": {
+          "type": "string"
+        },
+        "fieldsV1": {
+          "allOf": [
+            {
+              "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.FieldsV1"
+            }
+          ]
+        },
+        "manager": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "subresource": {
+          "type": "string"
+        },
+        "time": {
+          "allOf": [
+            {
+              "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.Time"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta": {
+      "properties": {
+        "annotations": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "creationTimestamp": {
+          "allOf": [
+            {
+              "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.Time"
+            }
+          ]
+        },
+        "deletionGracePeriodSeconds": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "deletionTimestamp": {
+          "allOf": [
+            {
+              "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.Time"
+            }
+          ]
+        },
+        "finalizers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-kubernetes-list-type": "set",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "generateName": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "managedFields": {
+          "items": {
+            "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.ManagedFieldsEntry"
+          },
+          "type": "array",
+          "x-kubernetes-list-type": "atomic"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "ownerReferences": {
+          "items": {
+            "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.OwnerReference"
+          },
+          "type": "array",
+          "x-kubernetes-list-map-keys": [
+            "uid"
+          ],
+          "x-kubernetes-list-type": "map",
+          "x-kubernetes-patch-merge-key": "uid",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "resourceVersion": {
+          "type": "string"
+        },
+        "selfLink": {
+          "type": "string"
+        },
+        "uid": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "io.k8s.apimachinery.pkg.apis.meta.v1.OwnerReference": {
+      "properties": {
+        "apiVersion": {
+          "default": "",
+          "type": "string"
+        },
+        "blockOwnerDeletion": {
+          "type": "boolean"
+        },
+        "controller": {
+          "type": "boolean"
+        },
+        "kind": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "uid": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "name",
+        "uid"
+      ],
+      "type": "object",
+      "x-kubernetes-map-type": "atomic"
+    },
+    "io.k8s.apimachinery.pkg.apis.meta.v1.Time": {
+      "format": "date-time",
+      "type": "string"
+    }
+  },
+  "version": "1.37.0"
+}

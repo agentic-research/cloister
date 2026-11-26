@@ -176,6 +176,17 @@ export function placementName(bundle, env) {
 }
 
 /**
+ * Every environment cluster.toml names: in a bundle's placement rows, and in a
+ * connection's target rows. There is no other list of them.
+ */
+export function environmentsOf(cluster) {
+  const envs = new Set();
+  for (const b of cluster?.bundles ?? []) for (const p of b.placements ?? []) if (p.env) envs.add(p.env);
+  for (const c of cluster?.connections ?? []) for (const t of c.targets ?? []) if (t.env) envs.add(t.env);
+  return envs;
+}
+
+/**
  * Within one environment a name means one bundle. Throws by name when two
  * bundles placed in the same environment go by the same name there, whether
  * by a placement row's `name` or by their own.

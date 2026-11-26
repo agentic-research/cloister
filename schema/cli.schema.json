@@ -400,6 +400,41 @@
       "required": ["workload", "type", "name"],
       "additionalProperties": false
     },
+    "CheckoutFile": {
+      "type": "object",
+      "description": "A file the checkout supplied to `cloister inspect`.",
+      "properties": {
+        "file": { "type": "string", "description": "The path, as cluster.toml or the flag names it." },
+        "holds": { "type": "string", "description": "'crd' or 'mapping'." },
+        "from": { "type": "string", "description": "Where it is named: 'cluster.toml', '--crd' or '--mapping'." },
+        "env": { "type": "string", "description": "The environment a CRD row is for. Empty means every environment." },
+        "applies": { "type": "boolean", "description": "Whether this run read it: a CRD row for another environment is not." }
+      },
+      "required": ["file", "holds", "from", "env", "applies"],
+      "additionalProperties": false
+    },
+    "CheckedKind": {
+      "type": "object",
+      "description": "A kind of object the checkout added or changed: the schema it was checked against, what that replaced, and the entry that read it.",
+      "properties": {
+        "kind": { "type": "string", "description": "'<apiVersion> <kind>'." },
+        "schema": { "type": "string", "description": "The CRD file the kind was checked against, or the projection cloister ships." },
+        "replaced": { "type": "string", "description": "The definition that schema replaced. Empty when it replaced none." },
+        "entry": { "type": "string", "description": "The mapping file whose entry read the kind, or 'cloister'." }
+      },
+      "required": ["kind", "schema", "replaced", "entry"],
+      "additionalProperties": false
+    },
+    "InspectCheckout": {
+      "type": "object",
+      "description": "What the checkout supplied ([inspect] in cluster.toml, --crd, --mapping), and what each file checked.",
+      "properties": {
+        "files": { "type": "array", "items": { "$ref": "#/$defs/CheckoutFile" } },
+        "kinds": { "type": "array", "items": { "$ref": "#/$defs/CheckedKind" } }
+      },
+      "required": ["files", "kinds"],
+      "additionalProperties": false
+    },
     "InspectReport": {
       "type": "object",
       "description": "The output of `cloister inspect --json`.",
@@ -421,9 +456,10 @@
         "declaredConnections": { "type": "array", "items": { "$ref": "#/$defs/ConnectionRef" }, "description": "The [[connections]] targets compared, for --env or every environment." },
         "unlisted": { "type": "array", "items": { "$ref": "#/$defs/UnlistedResource" } },
         "findings": { "type": "array", "items": { "$ref": "#/$defs/Finding" } },
-        "skipped": { "type": "array", "items": { "$ref": "#/$defs/SkippedType" } }
+        "skipped": { "type": "array", "items": { "$ref": "#/$defs/SkippedType" } },
+        "checkout": { "$ref": "#/$defs/InspectCheckout", "description": "What the checkout supplied, and what it checked. Empty lists when it supplied nothing." }
       },
-      "required": ["formatVersion", "document", "workloads", "referencedByConfiguration", "routes", "requestPaths", "tunnels", "ingress", "privateServices", "accessApplications", "storage", "sections", "dns", "declaredWires", "declaredConnections", "unlisted", "findings", "skipped"],
+      "required": ["formatVersion", "document", "workloads", "referencedByConfiguration", "routes", "requestPaths", "tunnels", "ingress", "privateServices", "accessApplications", "storage", "sections", "dns", "declaredWires", "declaredConnections", "unlisted", "findings", "skipped", "checkout"],
       "additionalProperties": false
     }
   }

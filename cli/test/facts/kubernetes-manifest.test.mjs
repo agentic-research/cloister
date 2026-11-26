@@ -14,9 +14,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { projectObjectSpec, readCrds, renderSpec } from "../../../gen/facts-spec.mjs";
+import { objectMetaDocument, projectObjectMeta, projectObjectSpec, readCrds, renderSpec } from "../../lib/facts/object-spec.mjs";
 import { OBJECT_SOURCES } from "../../../gen/facts-sources.mjs";
-import { KNATIVE_SERVING_SPEC, KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_OBJECT_SPECS, KUBERNETES_SPEC } from "../../lib/facts/cloudflare.mjs";
+import { KNATIVE_SERVING_SPEC, KUBERNETES_API_SPEC, KUBERNETES_MAPPING, KUBERNETES_OBJECT_META, KUBERNETES_OBJECT_SPECS, KUBERNETES_SPEC } from "../../lib/facts/cloudflare.mjs";
 import { draftCluster } from "../../lib/facts/draft.mjs";
 import { importFacts } from "../../lib/facts/import.mjs";
 import { buildReport, sectionsOf } from "../../lib/facts/report.mjs";
@@ -634,6 +634,30 @@ test("the vendored Knative projection is reproducible from Knative's CRD and Kub
     crds: readCrds(readFileSync(crd, "utf8")),
     metadata: JSON.parse(readFileSync(join(dir, "api__v1_openapi.json"), "utf8")),
     metadataVersion: KNATIVE_SERVING_SPEC.objectMeta.version,
+  }, KUBERNETES_MAPPING));
+  assert.equal(projected, readFileSync(here("../../lib/facts/spec/knative-serving.schema.json"), "utf8"));
+});
+
+test("the vendored ObjectMeta is reproducible from Kubernetes' OpenAPI documents, and is the Kubernetes projection's release", (t) => {
+  // A checkout's CRD is projected with it, when inspect runs: its kinds' metadata is this ObjectMeta.
+  assert.equal(KUBERNETES_OBJECT_META.version, KUBERNETES_API_SPEC.version);
+  const dir = sourceOf(t, "FACTS_KUBERNETES_OPENAPI", `a directory holding Kubernetes ${KUBERNETES_OBJECT_META.version}'s api/openapi-spec/v3 documents`);
+  if (!dir) return;
+  const documents = OBJECT_SOURCES.kubernetes.files.map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")));
+  const projected = renderSpec(projectObjectMeta(documents, { api: KUBERNETES_OBJECT_META.api, version: KUBERNETES_OBJECT_META.version }));
+  assert.equal(projected, readFileSync(here("../../lib/facts/spec/kubernetes-object-meta.schema.json"), "utf8"));
+});
+
+test("a CRD projected with the vendored ObjectMeta is what the generator projects with Kubernetes' own document", (t) => {
+  // What inspect does with a checkout's CRD, done to the CRD cloister ships a projection of.
+  const crd = sourceOf(t, "FACTS_KNATIVE_SERVICE_CRD", `Knative ${KNATIVE_SERVING_SPEC.version}'s config/core/300-resources/service.yaml`);
+  if (!crd) return;
+  const projected = renderSpec(projectObjectSpec([], {
+    api: KNATIVE_SERVING_SPEC.api,
+    version: KNATIVE_SERVING_SPEC.version,
+    crds: readCrds(readFileSync(crd, "utf8")),
+    metadata: objectMetaDocument(KUBERNETES_OBJECT_META),
+    metadataVersion: KUBERNETES_OBJECT_META.version,
   }, KUBERNETES_MAPPING));
   assert.equal(projected, readFileSync(here("../../lib/facts/spec/knative-serving.schema.json"), "utf8"));
 });

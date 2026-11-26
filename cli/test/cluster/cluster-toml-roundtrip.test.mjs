@@ -66,6 +66,13 @@ const EMPTY_GATEWAY = {
       skills: [],
 };
 
+/**
+ * The zero value of `[inspect]` (ADR-0073, amendment of 2026-11-24): the
+ * schema requires the field, and a cluster.toml without the table parses to
+ * this. The emitter writes no `[inspect]` for it.
+ */
+const EMPTY_INSPECT = { mappings: [], crds: [] };
+
 /** A minimal cluster shape that passes ClusterSchema. */
 // cloister-a34edc: the empty deny-all confinement — the schema default every
 // bundle carries unless it opts in (fail-closed baseline, Inv 10).
@@ -113,6 +120,7 @@ function minimalCluster() {
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    inspect: EMPTY_INSPECT,
     edges: [], // ADR-0030 / cloister-0e3004 — required schema field (back-compat: pre-ADR-0030 = empty)
   };
 }
@@ -173,6 +181,7 @@ function richCluster() {
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    inspect: EMPTY_INSPECT,
     edges: [], // ADR-0030 / cloister-0e3004 — required schema field (back-compat: pre-ADR-0030 = empty)
   };
 }
@@ -227,6 +236,85 @@ doStoragePath = "/data/do"
   assert.equal(validated.bundles[0].kind.external.image, "alpha:0.1");
   // Wire transport (un-flattened from transport = "uds"):
   assert.deepEqual(validated.wires[0].transport, { uds: null });
+});
+
+// ── [inspect] (ADR-0073, amendment of 2026-11-24) ───────────────────────────
+
+const INSPECT_BASE = `
+[metadata]
+name = "test-cluster"
+version = "0.0.1"
+
+[[bundles]]
+kind = "external"
+name = "alpha"
+tier = "cluster"
+
+[bundles.external]
+image = "alpha:0.1"
+ipcSocket = "/run/alpha.sock"
+
+[storage]
+doStoragePath = "/data/do"
+`;
+
+test("[inspect]: its mappings and CRD rows parse, each row's env and replaces defaulting to every environment and none", async () => {
+  const parsed = await parseTomlToCluster(`${INSPECT_BASE}
+[inspect]
+mappings = ["deploy/inspect.mapping.json"]
+
+[[inspect.crds]]
+file = "deploy/crds/widgets.yaml"
+
+[[inspect.crds]]
+env = "prod"
+file = "deploy/crds/prod/widgets.yaml"
+replaces = ["example.test/v1 Widget"]
+`);
+  assert.deepEqual(parsed.inspect, {
+    mappings: ["deploy/inspect.mapping.json"],
+    crds: [
+      { file: "deploy/crds/widgets.yaml", env: "", replaces: [] },
+      { file: "deploy/crds/prod/widgets.yaml", env: "prod", replaces: ["example.test/v1 Widget"] },
+    ],
+  });
+  // A cluster.toml without the table names no files.
+  assert.deepEqual((await parseTomlToCluster(INSPECT_BASE)).inspect, EMPTY_INSPECT);
+});
+
+test("[inspect]: a key the schema does not define is refused, never dropped", async () => {
+  await assert.rejects(parseTomlToCluster(`${INSPECT_BASE}
+[inspect]
+mapping = ["deploy/inspect.mapping.json"]
+`), /mapping/);
+  await assert.rejects(parseTomlToCluster(`${INSPECT_BASE}
+[[inspect.crds]]
+file = "deploy/crds/widgets.yaml"
+replace = ["example.test/v1 Widget"]
+`), /replace/);
+});
+
+test("[inspect]: emitted only when it names a file, and a row writes only what it sets", async () => {
+  const parsed = await parseTomlToCluster(`${INSPECT_BASE}
+[inspect]
+mappings = ["m.json"]
+
+[[inspect.crds]]
+file = "w.yaml"
+
+[[inspect.crds]]
+env = "prod"
+file = "p.yaml"
+replaces = ["example.test/v1 Widget"]
+`);
+  const toml = clusterToToml(parsed);
+  // smol-toml's tables have a null prototype; compare the values.
+  assert.deepEqual(JSON.parse(JSON.stringify(parseToml(toml).inspect)), {
+    crds: [{ file: "w.yaml" }, { env: "prod", file: "p.yaml", replaces: ["example.test/v1 Widget"] }],
+    mappings: ["m.json"],
+  });
+  assert.deepEqual((await parseTomlToCluster(toml)).inspect, parsed.inspect);
+  assert.ok(!clusterToToml(await parseTomlToCluster(INSPECT_BASE)).includes("inspect"));
 });
 
 test("toml-to-cluster: renderClusterTs emits the canonical cluster.ts shape", () => {
@@ -568,6 +656,7 @@ test("roundtrip: empty bundles/wires arrays are byte-equal across roundtrip (TOM
     inputs: [], // ADR-0026 / cloister-cf7a3b Phase 1a — required schema field
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    inspect: EMPTY_INSPECT,
     edges: [], // ADR-0030 / cloister-0e3004 — required schema field
     connections: [], // ADR-0069 / cloister-991e65 — schema default
   };
@@ -902,6 +991,7 @@ test("inputs: empty inputs array omits the [inputs] section from emitted TOML (b
     inputs: [],
     routes: [],
     gateway: EMPTY_GATEWAY,
+    inspect: EMPTY_INSPECT,
   };
   const toml = clusterToToml(cluster);
   // Substring check, not regex. The contract: any "[inputs" header
@@ -1049,6 +1139,7 @@ test("inputs: zod strict-mode ACCEPTS urlBinding + serviceBinding (P5 follow-up 
     }],
     routes: [], // cloister-345ad1 / ADR-0031 Phase 2 — required schema field
     gateway: EMPTY_GATEWAY, // cloister-c919d7 / ADR-0031 Phase 4a — required schema field
+    inspect: EMPTY_INSPECT,
     edges: [], // ADR-0030 / cloister-0e3004 — required schema field
   };
   const out = ClusterSchema.parse(sample);
@@ -1597,6 +1688,7 @@ test("routes: empty routes array omits [[routes]] section from emitted TOML", as
     inputs: [],
     routes: [],
     gateway: EMPTY_GATEWAY,
+    inspect: EMPTY_INSPECT,
   };
   const toml = clusterToToml(cluster);
   assert.ok(!toml.includes("[[routes]]"), "empty routes[] must NOT emit a [[routes]] section");
@@ -1685,6 +1777,7 @@ test("routes: full repository fixture (health + sentinels + identity + mcp) roun
       },
     ],
     gateway: EMPTY_GATEWAY,
+    inspect: EMPTY_INSPECT,
   };
   const t1 = clusterToToml(cluster);
   const back = await parseTomlToCluster(t1);
@@ -1902,6 +1995,7 @@ test("gateway: empty Gateway object omits the [gateway] section from emitted TOM
     inputs: [],
     routes: [],
     gateway: EMPTY_GATEWAY,
+    inspect: EMPTY_INSPECT,
   };
   const toml = clusterToToml(cluster);
   assert.ok(!toml.includes("[gateway"), "all-empty gateway must NOT emit a [gateway] section");

@@ -8,6 +8,29 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a checkout supplies the CRDs and entries for kinds cloister does not ship (ADR-0073 amendment)
+
+- `cluster.toml`'s new `[inspect]` table names the checkout's mapping files and
+  CRD files (`[[inspect.crds]]`, each with an optional `env` and `replaces`).
+  `cloister inspect --crd <file> --mapping <file>` adds files for one run, and
+  `--draft` takes them that way. The plan-check Action reads them from
+  `cluster.toml`.
+- A CRD is projected when `inspect` runs, by the code that projects Knative's
+  (moved to `cli/lib/facts/object-spec.mjs`). Its metadata is ObjectMeta as
+  Kubernetes 1.37.0 defines it, now vendored and rebuilt in CI.
+- A checkout entry says what a kind means. `podTemplate` reads a pod template
+  as cloister's Deployment entry does. A checkout mapping holds entries only,
+  and may not replace one cloister ships.
+- A declaration wins only where it says it does. A row lists in `replaces`
+  each kind it replaces: an environment's row over a row for every
+  environment, or a row over cloister's projection. An unlisted overlap, a
+  listed kind with nothing to replace, and two rows at one level defining one
+  kind are each refused. cloister's entries for a replaced kind are checked
+  against the replacement. A file a flag adds may only add kinds.
+- The report starts with what the checkout checked. `inspect --json` is
+  InspectReport 1.1, with `checkout`.
+- Each fact holds the entry that read it, and a run's mappings are its own.
+
 ### 2026-11 — `cloister inspect` never reads a withheld value as absent (ADR-0073 amendment)
 
 - A list row keeps the names of the fields the document marks sensitive. A

@@ -10,6 +10,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { parseTomlToCluster } from "../lib/cluster/toml-to-cluster.mjs";
+import { checkoutRows, readWithCheckout } from "../lib/facts/checkout.mjs";
 import { draftCluster } from "../lib/facts/draft.mjs";
 import { importFacts } from "../lib/facts/import.mjs";
 import { buildReport, renderReport } from "../lib/facts/report.mjs";
@@ -31,7 +32,7 @@ export const FAIL_ON_KINDS = ["undeclared", "contradicted", "unknown"];
 export const EXIT_FINDINGS = 3;
 
 export function parseArgs(argv) {
-  const opts = { json: false, wrangler: [] };
+  const opts = { json: false, wrangler: [], crd: [], mapping: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const value = () => {
@@ -42,6 +43,8 @@ export function parseArgs(argv) {
     };
     if (arg === "--terraform") opts.terraform = value();
     else if (arg === "--wrangler") opts.wrangler.push(value());
+    else if (arg === "--crd") opts.crd.push(value());
+    else if (arg === "--mapping") opts.mapping.push(value());
     else if (arg === "--dir") opts.dir = value();
     else if (arg === "--env") opts.env = value();
     else if (arg === "--json") opts.json = true;
@@ -121,14 +124,14 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     throw error;
   }
   if (opts.help) {
-    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>]\n       cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind kubernetes|knative]] [--name <cluster name>]");
+    log("Usage: cloister inspect [--terraform <file>] [--wrangler <file>]... [--crd <file>]... [--mapping <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>]\n       cloister inspect --terraform <file> --draft --env <name> [--crd <file>]... [--mapping <file>]... [--local <env> [--local-kind kubernetes|knative]] [--name <cluster name>]");
     return 0;
   }
 
   const wranglerFiles = opts.wrangler.map((f) => resolve(f));
-  for (const [i, file] of wranglerFiles.entries()) {
-    if (!existsSync(file)) {
-      errLog(`cloister inspect: no such file: ${opts.wrangler[i]}`);
+  for (const named of [...opts.wrangler, ...opts.crd, ...opts.mapping]) {
+    if (!existsSync(resolve(named))) {
+      errLog(`cloister inspect: no such file: ${named}`);
       return 2;
     }
   }
@@ -154,14 +157,21 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
     }
   }
 
+  // Files a flag adds, for this run only: a CRD file may only add kinds.
+  const flagged = {
+    crds: opts.crd.map((f) => ({ file: f, path: resolve(f), env: "", replaces: [], from: "--crd" })),
+    mappings: opts.mapping.map((f) => ({ file: f, path: resolve(f), from: "--mapping" })),
+  };
+  const read = (path) => readFileSync(path, "utf8");
   try {
-    const imported = file
-      ? importFacts(JSON.parse(readFileSync(file, "utf8")))
-      : { kind: null, formatVersion: null, facts: [], skipped: {} };
-    for (const wranglerFile of wranglerFiles) imported.facts.push(importWrangler(wranglerFile));
+    const document = file ? JSON.parse(readFileSync(file, "utf8")) : null;
     if (opts.draft) {
       // The draft is printed, never written: the operator chooses where it
       // goes, and an existing cluster.toml is not read and cannot be replaced.
+      // So a checkout's files come from the flags only.
+      const { registry } = readWithCheckout({ ...flagged, read, env: opts.env });
+      const imported = importFacts(document, registry);
+      for (const wranglerFile of wranglerFiles) imported.facts.push(importWrangler(wranglerFile));
       const draft = draftCluster(imported, { env: opts.env, name: opts.name, local: opts.local, localKind: opts.localKind });
       log(draft.toml);
       return 0;
@@ -180,7 +190,20 @@ export async function main(argv = process.argv.slice(2), deps = {}) {
       errLog(`cloister inspect: --fail-on needs a cluster.toml to check against, and there is none in ${dir}. Pass --dir`);
       return 2;
     }
-    const report = buildReport(imported, cluster, { env: opts.env });
+    // The checkout's files: cluster.toml's [inspect], then the flags'.
+    const declared = checkoutRows(cluster?.inspect, (f) => join(dir, f));
+    const { registry, checkout } = readWithCheckout({
+      crds: [...declared.crds, ...flagged.crds],
+      mappings: [...declared.mappings, ...flagged.mappings],
+      read,
+      env: opts.env,
+      cluster,
+    });
+    const imported = document
+      ? importFacts(document, registry)
+      : { kind: null, formatVersion: null, facts: [], skipped: {}, registry };
+    for (const wranglerFile of wranglerFiles) imported.facts.push(importWrangler(wranglerFile));
+    const report = buildReport(imported, cluster, { env: opts.env, checkout });
     if (opts.json) {
       // The declared projection, checked against its schema (ADR-0077).
       const { declaredOutput } = await import("../lib/output-format.mjs");

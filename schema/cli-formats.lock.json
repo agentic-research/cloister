@@ -56,7 +56,7 @@
       }
     },
     "InspectReport": {
-      "formatVersion": "1.0",
+      "formatVersion": "1.1",
       "shape": {
         "AccessApplication": {
           "fields": {
@@ -121,6 +121,23 @@
           "fields": {
             "type": "string",
             "target": "string"
+          }
+        },
+        "CheckedKind": {
+          "fields": {
+            "kind": "string",
+            "schema": "string",
+            "replaced": "string",
+            "entry": "string"
+          }
+        },
+        "CheckoutFile": {
+          "fields": {
+            "file": "string",
+            "holds": "string",
+            "from": "string",
+            "env": "string",
+            "applies": "boolean"
           }
         },
         "ConfigurationReference": {
@@ -219,6 +236,12 @@
             "service": "string"
           }
         },
+        "InspectCheckout": {
+          "fields": {
+            "files": "CheckoutFile[]",
+            "kinds": "CheckedKind[]"
+          }
+        },
         "InspectReport": {
           "fields": {
             "formatVersion": "string",
@@ -238,7 +261,8 @@
             "declaredConnections": "ConnectionRef[]",
             "unlisted": "UnlistedResource[]",
             "findings": "Finding[]",
-            "skipped": "SkippedType[]"
+            "skipped": "SkippedType[]",
+            "checkout": "InspectCheckout"
           }
         },
         "PrivateService": {

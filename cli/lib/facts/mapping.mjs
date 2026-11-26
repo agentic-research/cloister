@@ -87,3 +87,44 @@ export function objectKind(mapping, type) {
   const [resourceType, ...values] = type.split(" ");
   return { resourceType, object: heldObject(mapping, resourceType), values, kind: values.join(" ") };
 }
+
+// ── A pod template, named once ──────────────────────────────────────────────
+//
+// A custom resource that runs pods holds a pod template, as a Deployment
+// does, somewhere in its spec. An entry a checkout supplies may say where
+// (ADR-0073, amendment of 2026-11-24):
+//
+//   "kubernetes_manifest argoproj.io/v1alpha1 Rollout": { "podTemplate": "spec.template", ... }
+//
+// and the template is read as a Deployment's is: the lists and maps cloister's
+// Deployment entry reads under its `spec.template`, rooted where this entry
+// says. It is expanded before the entry is validated, so each path is checked
+// against the kind's own schema as if it were written out. What the entry
+// reports, and the bundle it drafts, are what the entry states.
+
+const TEMPLATE = "spec.template";
+const underTemplate = (path) => typeof path === "string" && path.startsWith(`${TEMPLATE}.`);
+const reroot = (path, at) => `${at}${path.slice(TEMPLATE.length)}`;
+
+/**
+ * `types` with every `podTemplate` expanded, read from `deployment` (the
+ * entry whose pod template is the model). The input is not changed.
+ */
+export function expandPodTemplates(types, deployment) {
+  const out = {};
+  for (const [type, entry] of Object.entries(types ?? {})) {
+    if (!isTable(entry) || entry.podTemplate === undefined) { out[type] = entry; continue; }
+    const { podTemplate: at, ...rest } = entry;
+    if (typeof at !== "string" || !/^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(at)) {
+      throw new Error(`mapping: ${type} podTemplate must be the dotted path of the pod template in the object, for example "spec.template"`);
+    }
+    const lists = (deployment.lists ?? []).filter((list) => underTemplate(list.path)).map((list) => ({ ...structuredClone(list), path: reroot(list.path, at) }));
+    const maps = (deployment.maps ?? []).filter(underTemplate).map((path) => reroot(path, at));
+    out[type] = {
+      ...structuredClone(rest),
+      maps: [...(Array.isArray(rest.maps) ? rest.maps : []), ...maps],
+      lists: [...(Array.isArray(rest.lists) ? structuredClone(rest.lists) : []), ...lists],
+    };
+  }
+  return out;
+}

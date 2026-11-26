@@ -77,6 +77,12 @@ export interface Cluster {
    * Optional in the TS mirror, like `edges`; absent = no connections.
    */
   connections?: readonly ConnectionSpec[];
+  /**
+   * The CRDs and mapping files the checkout supplies to `cloister inspect`
+   * (ADR-0073, amendment of 2026-11-24). Optional in the TS mirror, like
+   * `connections`; absent = cloister's own schemas and entries only.
+   */
+  inspect?: Inspect;
 }
 
 /**
@@ -84,6 +90,31 @@ export interface Cluster {
  * `manifest/cluster.capnp` `ConnectionSpec`. Not to be confused with
  * `Connection` (ADR-0051), which is how cloister reaches an INPUT.
  */
+/**
+ * `[inspect]` (ADR-0073, amendment of 2026-11-24): the CRDs and mapping files
+ * the checkout supplies to `cloister inspect`. Every path is relative to
+ * cluster.toml, and inside the checkout.
+ */
+export interface Inspect {
+  /** Mapping files holding entries for kinds of object a resource holds whole. */
+  mappings: readonly string[];
+  /** The CRDs those kinds are checked against, as the cluster has them. */
+  crds: readonly InspectCrd[];
+}
+
+/**
+ * One CRD file. A kind it defines that is defined already (by a projection
+ * cloister ships, or for a row naming an environment by a row for every
+ * environment) must be listed in `replaces`: nothing is decided by precedence.
+ */
+export interface InspectCrd {
+  file: string;
+  /** The environment this CRD is for; `""` is every environment. */
+  env: string;
+  /** Each `"<apiVersion> <kind>"` this file defines that is defined already, and replaces. */
+  replaces: readonly string[];
+}
+
 export interface ConnectionSpec {
   /** The dialling bundle. */
   from: string;

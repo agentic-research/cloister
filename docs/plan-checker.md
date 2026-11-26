@@ -92,6 +92,57 @@ StatefulSets, DaemonSets, Jobs, Services, Namespaces and Knative Services
 written as `kubernetes_manifest`), and `wrangler.toml` with `--wrangler`. Anything else
 is named on the report's "Not read" line.
 
+## Kinds cloister does not ship
+
+A custom resource cloister has no schema for (an operator's own, or a
+vendor's) is read once your checkout supplies two things:
+
+- **The CRD**, as your cluster has it (`kubectl get crd <name> -o yaml`, or
+  the vendor's release file). Each path an entry reads is checked against it.
+- **An entry** that says what the kind means, in a mapping file. A CRD gives a
+  kind's shape, not its meaning, so the entry says that it is a workload, and
+  where its pod template is. `podTemplate` reads the template as a
+  Deployment's is:
+
+  ```json
+  { "types": { "kubernetes_manifest example.com/v1 Widget": {
+    "name": "metadata.name",
+    "read": ["metadata.namespace"],
+    "podTemplate": "spec.template",
+    "report": { "section": "Widgets", "show": ["metadata.namespace"],
+      "bundle": { "placement": "kubernetes", "image": { "list": "containers", "value": "image" } } }
+  } } }
+  ```
+
+Name both in `cluster.toml`, so CI and a local run check the same way:
+
+```toml
+[inspect]
+mappings = ["deploy/inspect.mapping.json"]
+
+[[inspect.crds]]
+file = "deploy/crds/widgets.yaml"                 # every environment
+
+[[inspect.crds]]
+env = "prod"                                      # only where the plan describes prod
+file = "deploy/crds/prod/widgets.yaml"
+replaces = ["example.com/v1 Widget"]              # in prod, instead of the row above
+```
+
+A row that defines a kind something else already defines must list that kind
+in `replaces`. That covers cloister's own projection of a kind (a Knative
+Service, say) and, for a row naming an environment, a row for every
+environment. An overlap a row does not list is refused, and so is a listed
+kind with nothing to replace: nothing is decided by precedence. When cloister
+ships an entry for the kind, that entry is checked against the CRD that
+replaced its schema, and a path the CRD lacks refuses the run. Paths are
+relative to `cluster.toml` and inside the checkout.
+
+`--crd <file>` and `--mapping <file>` add files for one run, and `--draft`
+takes them this way. A file a flag adds may only add kinds. The report starts
+with what the checkout's files checked: each kind, its schema, what that
+replaced, and the entry that read it.
+
 ## In CI
 
 `--fail-on` turns findings into an exit code: 3 when a finding of a kind you
