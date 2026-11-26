@@ -147,7 +147,7 @@ export function validateMapping(mapping, spec, objectSpecs = []) {
     }
     // After the paths are checked, so a path that is not a value is refused as that.
     checkListKeys(type, entry);
-    checkReport(type, entry, mapping.types);
+    checkReport(type, entry, mapping.types, attributes);
   }
   const bindingList = mapping.types?.cloudflare_workers_script?.lists?.find((l) => l.path === "bindings");
   const bindingAttrs = bindingList && resources.cloudflare_workers_script?.attributes.bindings?.attributes;
@@ -217,14 +217,29 @@ function onlyKeys(table, allowed, where) {
  * above hold to the provider spec: the report cannot show, or decide on,
  * anything the importer was not allowed to read.
  */
-function checkReport(type, entry, types = {}) {
+function checkReport(type, entry, types = {}, attributes = {}) {
   const read = entry.read ?? [];
   if (entry.report !== undefined) {
     const { report } = entry;
     if (!isTable(report) || !isText(report.section) || !Array.isArray(report.show)) {
       throw new Error(`mapping: ${type}.report needs a "section" title and a "show" list`);
     }
-    onlyKeys(report, ["section", "show", "address", "hosts", "standsFor", "dials", "references", "bundle"], `${type}.report`);
+    onlyKeys(report, ["section", "show", "address", "hosts", "standsFor", "dials", "references", "bundle", "unchecked"], `${type}.report`);
+    // `unchecked`: a setting that turns an access check off (Cloud Run's
+    // invoker_iam_disabled). When it is true, the label is granted to anyone
+    // the network lets through. It must be a bool the entry reads, and the
+    // label one an access type gives this type.
+    if (report.unchecked !== undefined) {
+      const { unchecked } = report;
+      const where = `${type}.report unchecked`;
+      if (!isTable(unchecked)) throw new Error(`mapping: ${where} must be a table`);
+      onlyKeys(unchecked, ["attr", "label"], where);
+      if (!read.includes(unchecked.attr) || lookup(attributes, unchecked.attr, `${type}.`).type !== "bool") {
+        throw new Error(`mapping: ${where} needs an "attr" that is a bool in the entry's "read" list`);
+      }
+      const labels = Object.values(types).filter((e) => e.access && (e.relations ?? []).some((r) => r.toType === type)).flatMap((e) => Object.values(e.access.roles));
+      if (!labels.includes(unchecked.label)) throw new Error(`mapping: ${where} label "${unchecked.label}" is not one an access type gives ${type}`);
+    }
     // `hosts`: names this resource answers to that are built from what it
     // reads. Every `{attribute}` must be one the entry reads, or `{name}`.
     if (report.hosts !== undefined) {
@@ -302,7 +317,39 @@ function checkReport(type, entry, types = {}) {
       if (!isTable(bundle) || !FORWARDED_KINDS.includes(bundle.placement)) {
         throw new Error(`mapping: ${where} needs a "placement" that is one of ${FORWARDED_KINDS.join(", ")}`);
       }
-      onlyKeys(bundle, ["placement", "runs", "image", "args", "command", "env", "ports", "wires", "exposure", "identity"], where);
+      onlyKeys(bundle, ["placement", "runs", "container", "image", "args", "command", "env", "ports", "wires", "exposure", "identity"], where);
+      // `container`: the list of the workload's containers. A bundle is one
+      // container (ADR-0074, amendment of 2026-11-26): what it is started
+      // with is read from that one, never merged from several. `serving`
+      // names a list only the container that serves has rows in, where the
+      // platform says so (Cloud Run's and Knative's ports).
+      const nested = (key) => lists.has(key) && bundle.container !== undefined && lists.has(bundle.container.list) &&
+        lists.get(key).path.startsWith(`${lists.get(bundle.container.list).path}.`);
+      const readsProcess = ["image", "args", "command", "env", "ports"].some((key) => bundle[key] !== undefined);
+      if (readsProcess && bundle.container === undefined) {
+        throw new Error(`mapping: ${where} needs a "container": the list of the workload's containers, so that one container is drafted and several are never merged`);
+      }
+      if (bundle.container !== undefined) {
+        const { container } = bundle;
+        if (!isTable(container) || !lists.has(container.list)) throw new Error(`mapping: ${where} container needs a "list" the entry reads`);
+        onlyKeys(container, ["list", "serving"], `${where} container`);
+        if (container.serving !== undefined && !nested(container.serving)) {
+          throw new Error(`mapping: ${where} container serving "${container.serving}" must be a list the entry reads within each container`);
+        }
+        for (const key of ["image", "args", "command"]) {
+          if (bundle[key] !== undefined && bundle[key].list !== container.list) {
+            throw new Error(`mapping: ${where} ${key} must be read from the container list "${container.list}"`);
+          }
+        }
+        if (bundle.ports !== undefined && !nested(bundle.ports.list)) throw new Error(`mapping: ${where} ports must be a list within each container`);
+        if (bundle.env?.list !== undefined && !nested(bundle.env.list)) throw new Error(`mapping: ${where} env must be a list within each container`);
+        if (bundle.env?.configured !== undefined) {
+          const configured = (entry.configLists ?? []).find((list) => list.path.split(".").pop() === bundle.env.configured);
+          if (configured && !configured.path.startsWith(`${lists.get(container.list).path}.`)) {
+            throw new Error(`mapping: ${where} env must be configured within each container`);
+          }
+        }
+      }
       // `identity`: who the workload runs as, and how an access row names
       // that principal. The attribute must be one the entry reads; the
       // template holds exactly one `{}`, where the attribute's value goes.
@@ -325,7 +372,7 @@ function checkReport(type, entry, types = {}) {
       if (bundle.exposure !== undefined) {
         const { exposure } = bundle;
         if (!isTable(exposure)) throw new Error(`mapping: ${where} exposure must be a table`);
-        onlyKeys(exposure, ["attr", "key", "cluster", "edge"], `${where} exposure`);
+        onlyKeys(exposure, ["attr", "key", "cluster", "edge", "unsorted"], `${where} exposure`);
         if (exposure.key === undefined ? !read.includes(exposure.attr) : !isText(exposure.key) || !(entry.maps ?? []).includes(exposure.attr)) {
           throw new Error(exposure.key === undefined
             ? `mapping: ${where} exposure needs an "attr" that is in the entry's "read" list`
@@ -341,6 +388,15 @@ function checkReport(type, entry, types = {}) {
         if (values.length === 0) throw new Error(`mapping: ${where} exposure sorts no value as "cluster" or "edge"`);
         if (new Set(values).size !== values.length) {
           throw new Error(`mapping: ${where} exposure lists one value as both "cluster" and "edge"`);
+        }
+        // `unsorted`: a value left unsorted on purpose, and why. What the
+        // value does not say is said, rather than sorted one way.
+        if (exposure.unsorted !== undefined) {
+          if (!isTable(exposure.unsorted)) throw new Error(`mapping: ${where} exposure "unsorted" must be a table of value → why`);
+          for (const [value, why] of Object.entries(exposure.unsorted)) {
+            if (!isText(why)) throw new Error(`mapping: ${where} exposure unsorted "${value}" needs a reason`);
+            if (values.includes(value)) throw new Error(`mapping: ${where} exposure lists "${value}" as sorted and unsorted`);
+          }
         }
       }
       // How the workload runs: until it is stopped, or to completion.

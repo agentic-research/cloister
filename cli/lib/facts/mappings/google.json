@@ -3,7 +3,7 @@
   "types": {
     "google_cloud_run_v2_service": {
       "name": "name",
-      "read": ["location", "ingress", "uri", "template.service_account"],
+      "read": ["location", "ingress", "uri", "template.service_account", "invoker_iam_disabled"],
       "ids": ["project", "id"],
       "referenceAttrs": ["template"],
       "lists": [
@@ -21,10 +21,12 @@
           { "list": "containers", "strings": "command", "prefix": "command" }
         ],
         "references": ["template"],
+        "unchecked": { "attr": "invoker_iam_disabled", "label": "invoker" },
         "bundle": {
           "placement": "cloudRun",
           "runs": "service",
           "identity": { "attr": "template.service_account", "principal": "serviceAccount:{}" },
+          "container": { "list": "containers", "serving": "ports" },
           "image": { "list": "containers", "value": "image" },
           "args": { "list": "containers", "strings": "args" },
           "command": { "list": "containers", "strings": "command" },
@@ -34,7 +36,10 @@
           "exposure": {
             "attr": "ingress",
             "cluster": ["INGRESS_TRAFFIC_INTERNAL_ONLY"],
-            "edge": ["INGRESS_TRAFFIC_ALL", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"]
+            "edge": ["INGRESS_TRAFFIC_ALL"],
+            "unsorted": {
+              "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER": "it is reached from outside only through an external load balancer, and cloister reads no load balancer"
+            }
           }
         }
       }
@@ -90,6 +95,7 @@
           "placement": "cloudRun",
           "runs": "job",
           "identity": { "attr": "template.template.service_account", "principal": "serviceAccount:{}" },
+          "container": { "list": "containers" },
           "image": { "list": "containers", "value": "image" },
           "args": { "list": "containers", "strings": "args" },
           "command": { "list": "containers", "strings": "command" },

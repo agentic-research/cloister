@@ -34,7 +34,7 @@ import kubernetesObjectMeta from "./spec/kubernetes-object-meta.schema.json" wit
 import knativeServingSpec from "./spec/knative-serving.schema.json" with { type: "json" };
 import kubernetesSpec from "./spec/kubernetes.schema.json" with { type: "json" };
 
-import { deepFreeze, entryOf, isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
+import { atRow, deepFreeze, entryOf, isMarkedSensitive, makeFact, pickPublic } from "./facts.mjs";
 import { expandMapping, heldObject, objectKind, objectType } from "./mapping.mjs";
 import { validateMapping } from "./validate.mjs";
 import { SITES, configuredRows, expressionSources } from "./terraform.mjs";
@@ -238,31 +238,32 @@ function pickPath(values, sensitive, path) {
  * Every row returned carries a marker that is an object, or undefined.
  */
 function rowsAt(values, sensitive, segments) {
-  let level = [{ value: values, marker: rowMarker(sensitive) }];
+  // `at` is the row's place: the index of every list item on the way to it.
+  let level = [{ value: values, marker: rowMarker(sensitive), at: [] }];
   let withheld = false;
   for (const segment of segments) {
     const next = [];
-    for (const { value, marker } of level) {
+    for (const { value, marker, at } of level) {
       if (marker === WITHHELD) { withheld = true; continue; }
       if (!value || typeof value !== "object" || Array.isArray(value)) continue;
       const inner = value[segment];
       const innerMarker = marker?.[segment];
       if (!Array.isArray(inner)) {
-        if (inner !== undefined && inner !== null) next.push({ value: inner, marker: rowMarker(innerMarker) });
+        if (inner !== undefined && inner !== null) next.push({ value: inner, marker: rowMarker(innerMarker), at });
         continue;
       }
       if (innerMarker !== undefined && innerMarker !== false && !Array.isArray(innerMarker)) { withheld = true; continue; }
       inner.forEach((item, index) => {
         if (Array.isArray(innerMarker) && index >= innerMarker.length) { withheld = true; return; }
-        next.push({ value: item, marker: Array.isArray(innerMarker) ? rowMarker(innerMarker[index]) : undefined });
+        next.push({ value: item, marker: Array.isArray(innerMarker) ? rowMarker(innerMarker[index]) : undefined, at: [...at, index] });
       });
     }
     level = next;
   }
   const rows = [];
-  for (const { value, marker } of level) {
+  for (const { value, marker, at } of level) {
     if (marker === WITHHELD) { withheld = true; continue; }
-    rows.push({ row: value, marker });
+    rows.push({ row: value, marker, at: at.join(".") });
   }
   return { rows, withheld };
 }
@@ -303,7 +304,7 @@ export function importResource(resource, entry, references, expressions) {
     const { rows, withheld } = rowsAt(values, sensitive, list.path.split("."));
     attrs[key] = [];
     if (withheld) attrs[`${key}Withheld`] = true;
-    for (const { row, marker } of rows) {
+    for (const { row, marker, at } of rows) {
       if (!row || typeof row !== "object") continue;
       // A field may be a path through nested objects (`valueFrom.secretKeyRef.name`).
       const picked = {};
@@ -324,7 +325,7 @@ export function importResource(resource, entry, references, expressions) {
       // A row whose every field is withheld is still a row: a port that is
       // there, unread, is not a port that is not there.
       if (withheldFields.length > 0) picked[WITHHELD_FIELDS] = withheldFields;
-      if (Object.keys(picked).length > 0) attrs[key].push(picked);
+      if (Object.keys(picked).length > 0) attrs[key].push(atRow(picked, at));
     }
   }
   // A map of strings read whole (a selector, a pod template's labels). Label

@@ -117,3 +117,30 @@ test("without that row the same plan gives the plain reason", async () => {
   assert.equal(finding.declaredIn, undefined);
   assert.match(finding.reason, /nothing "workqueue" is started with names "reconciler" in these inputs/);
 });
+
+test("a service whose invoker check is off is open to every caller, as a public row says", async () => {
+  // invoker_iam_disabled: Cloud Run checks no invoker role, so anyone the network lets through may call it.
+  const doc = plan();
+  resourcesOf(doc).find((r) => r.address === "google_cloud_run_v2_service.reconciler").values.invoker_iam_disabled = true;
+  const findings = accessFindings(doc, await drafted());
+  assert.deepEqual(findings.filter((f) => f.access.to === "reconciler").map((f) => [f.access.from, f.kind]), [["workqueue", "contradicted"], ["sweep", "contradicted"]]);
+  assert.match(findings[0].reason, /invoker is granted to anyone, since invoker_iam_disabled is true, so it is not only "workqueue" that may call it/);
+  // Off is not stated by its absence, nor by false.
+  for (const value of [false, undefined]) {
+    const plain = plan();
+    resourcesOf(plain).find((r) => r.address === "google_cloud_run_v2_service.reconciler").values.invoker_iam_disabled = value;
+    assert.ok(!accessFindings(plain, await drafted()).some((f) => f.kind === "contradicted"), String(value));
+  }
+});
+
+test("a setting that turns an access check off is a bool the entry reads, for a label an access type gives", () => {
+  const edited = (edit) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    edit(mapping.types.google_cloud_run_v2_service);
+    return () => validateMapping(mapping, GOOGLE_SPEC);
+  };
+  assert.doesNotThrow(edited(() => {}));
+  assert.throws(edited((e) => { e.report.unchecked.attr = "ingress"; }), /unchecked needs an "attr" that is a bool in the entry's "read" list/);
+  assert.throws(edited((e) => { e.read = e.read.filter((r) => r !== "invoker_iam_disabled"); }), /unchecked needs an "attr" that is a bool/);
+  assert.throws(edited((e) => { e.report.unchecked.label = "admin"; }), /unchecked label "admin" is not one an access type gives google_cloud_run_v2_service/);
+});

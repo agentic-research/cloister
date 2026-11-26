@@ -88,6 +88,9 @@
         "bundle": {
           "placement": "kubernetes",
           "runs": "service",
+          "container": {
+            "list": "container"
+          },
           "image": {
             "list": "container",
             "value": "image"
@@ -282,6 +285,9 @@
         "bundle": {
           "placement": "kubernetes",
           "runs": "service",
+          "container": {
+            "list": "containers"
+          },
           "image": {
             "list": "containers",
             "value": "image"
@@ -410,6 +416,10 @@
         "bundle": {
           "placement": "knative",
           "runs": "service",
+          "container": {
+            "list": "containers",
+            "serving": "ports"
+          },
           "image": {
             "list": "containers",
             "value": "image"

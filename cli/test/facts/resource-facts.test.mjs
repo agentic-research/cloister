@@ -1359,11 +1359,15 @@ test("a port's expose is evidenced when the plan agrees about reaching it from o
 test("expose is contradicted when cluster.toml says internal and the plan can be reached from outside, and the other way round", async () => {
   // cluster.toml was drafted from an internal-only plan; the plan then opens up.
   const internal = await draftedCluster();
-  for (const open of ["INGRESS_TRAFFIC_ALL", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER"]) {
-    const report = buildReport(importFacts(withIngress("reconciler", open)), internal, { env: "prod" });
-    assert.deepEqual(exposureFindings(report)[0], ["contradicted", "reconciler", "h2c", "cluster", `its ingress is ${open}, so it can be reached from outside`]);
-    assert.match(renderReport(report), new RegExp(` {2}contradicted reconciler port "h2c" expose = "cluster": its ingress is ${open}, so it can be reached from outside\n`));
-  }
+  const open = buildReport(importFacts(withIngress("reconciler", "INGRESS_TRAFFIC_ALL")), internal, { env: "prod" });
+  assert.deepEqual(exposureFindings(open)[0], ["contradicted", "reconciler", "h2c", "cluster", "its ingress is INGRESS_TRAFFIC_ALL, so it can be reached from outside"]);
+  assert.match(renderReport(open), / {2}contradicted reconciler port "h2c" expose = "cluster": its ingress is INGRESS_TRAFFIC_ALL, so it can be reached from outside\n/);
+  // Through a load balancer only: whether one fronts it is not in what cloister reads, so it is unknown, and the mapping says why.
+  const balanced = buildReport(importFacts(withIngress("reconciler", "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER")), internal, { env: "prod" });
+  assert.deepEqual(exposureFindings(balanced)[0], [
+    "unknown", "reconciler", "h2c", "cluster",
+    "its ingress is INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER: it is reached from outside only through an external load balancer, and cloister reads no load balancer",
+  ]);
   // And a cluster.toml that says edge, against a plan that is internal only.
   const edge = await draftedCluster(withIngress("reconciler", "INGRESS_TRAFFIC_ALL"));
   const report = buildReport(importFacts(googlePlan()), edge, { env: "prod" });
