@@ -367,8 +367,8 @@ read as if it were absent or public:
   projection records, and CI's `facts-checked` job runs the facts tests with
   `FACTS_SOURCES_REQUIRED=1`, under which a missing source fails.
 
-**Amendment (2026-11-24, proposed): a checkout supplies the CRDs, and the
-entries, for kinds cloister does not ship.** A cluster runs custom resources
+**Amendment (2026-11-24; built 2026-11-26): a checkout supplies the CRDs, and
+the entries, for kinds cloister does not ship.** A cluster runs custom resources
 cloister has never heard of: an operator's own, or a vendor's. Shipping a
 projection for each would tie every one to a cloister release, and to the
 version cloister picked rather than the one the cluster runs.
@@ -481,6 +481,28 @@ version cloister picked rather than the one the cluster runs.
   but it neither checks a path against the source's published schema nor
   obeys a document's sensitivity markers, and both are what a fact rests on.
 
+As built, these settle what the text above left open:
+
+- **A file `cluster.toml` names is a path inside the checkout**, relative to
+  `cluster.toml`. An absolute path, or one that leaves the directory, is
+  refused: the checkout would not carry it. A file a flag names may be
+  anywhere, for that run.
+- **Every CRD file is read, whichever environment it is for**, and must hold
+  a CRD, so a broken file is found in any run. One that defines no kind an
+  entry reads is refused: it would check nothing.
+- **The projection is one piece of code**, `cli/lib/facts/object-spec.mjs`,
+  which `gen/facts-spec.mjs` imports. A CRD's metadata at run time is
+  `spec/kubernetes-object-meta.schema.json`: ObjectMeta and the schemas it
+  refers to, as Kubernetes 1.37.0 defines them, rebuilt in CI. Knative's CRD
+  projected with it is the shipped Knative projection, byte for byte.
+- **`podTemplate` reads like cloister's Deployment entry**: the lists and maps
+  that entry reads under `spec.template`, rooted where the entry says.
+- **A fact holds the entry that read it.** The report asks the fact, never its
+  type again, and a run's mappings are its own: a checkout's entries never
+  reach cloister's.
+- **The report starts with what the checkout checked**, and `--json` carries
+  it as `checkout` (InspectReport 1.1).
+
 Providers are the same rule, later: a checkout's provider projection, made by
 `gen/facts-spec.mjs` from `tofu providers schema -json`, for a type cloister
 does not ship.
@@ -503,8 +525,8 @@ does not ship.
 | Objects a resource holds whole: `kubernetes_manifest` objects of the same six kinds, checked against Kubernetes' published schema (amendment of 2026-11-23) | built |
 | A custom resource held whole, checked against its CRD: Knative Services (amendment of 2026-11-24) | built |
 | Every vendored projection rebuilt from the release it records, in CI (second amendment of 2026-11-24) | built |
-| Other kinds held whole (an Ingress; other custom resources) | not built; each is a mapping entry and a projected schema |
-| CRDs and entries a checkout supplies, for kinds cloister does not ship (amendment of 2026-11-24, proposed) | not built |
+| Other built-in kinds held whole (an Ingress) | not built; each is an entry and a projection cloister ships, since a built-in kind has no CRD a checkout could supply |
+| CRDs and entries a checkout supplies, for kinds cloister does not ship (third amendment of 2026-11-24) | built |
 | Other providers | not built |
 | Target resolution from facts; emitting a policy fragment | not built; each needs its own decision |
 

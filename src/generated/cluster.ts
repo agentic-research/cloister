@@ -634,5 +634,9 @@ export const cluster: Cluster = {
     ]
   },
   "edges": [],
-  "connections": []
+  "connections": [],
+  "inspect": {
+    "mappings": [],
+    "crds": []
+  }
 } as const;

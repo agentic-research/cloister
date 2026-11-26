@@ -224,6 +224,20 @@ export interface ConnectionSpec {
   minStrength: string;
 }
 
+/** The CRDs and mapping files this checkout supplies to `cloister inspect`. */
+export const InspectSchema: z.ZodType<Inspect> = z.lazy(() =>
+  z.object({
+    /** Mapping files holding entries for the kinds of object a resource holds whole, such as a custom resource in a kubernetes_manifest. */
+    mappings: z.array(z.string()).readonly().default([]),
+    /** The CRDs the kinds are checked against, as the cluster has them. */
+    crds: z.array(InspectCrdSchema).readonly().default([]),
+  }).strict());
+
+export interface Inspect {
+  mappings: readonly string[];
+  crds: readonly InspectCrd[];
+}
+
 /** A cloister cluster: its bundles, how they connect, and the gateway in front of them. */
 export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
   z.object({
@@ -245,6 +259,8 @@ export const ClusterSchema: z.ZodType<Cluster> = z.lazy(() =>
     edges: z.array(EdgeSpecSchema).readonly().default([]),
     /** Declared outbound connections: which bundle dials which bundle's port, per environment. */
     connections: z.array(ConnectionSpecSchema).readonly().default([]),
+    /** The CRDs and mapping files this checkout supplies to `cloister inspect`. */
+    inspect: InspectSchema,
   }).strict());
 
 export interface Cluster {
@@ -257,6 +273,7 @@ export interface Cluster {
   gateway: Gateway;
   edges: readonly EdgeSpec[];
   connections: readonly ConnectionSpec[];
+  inspect: Inspect;
 }
 
 /** A bundle that runs as a v8 isolate inside the router's workerd. */
@@ -817,6 +834,23 @@ export interface ConnectionTarget {
   env: string;
   bundle: string;
   port: string;
+}
+
+/** A CRD file, the environment it is for, and the kinds it replaces. */
+export const InspectCrdSchema: z.ZodType<InspectCrd> = z.lazy(() =>
+  z.object({
+    /** The CRD file: `kubectl get crd <name> -o yaml`, or the vendor's release file. */
+    file: z.string().default(""),
+    /** The environment this CRD is for, named by a placement or connection row. Empty means every environment. */
+    env: z.string().default(""),
+    /** Each kind ('<apiVersion> <kind>') this file defines that is defined already, and this file replaces. */
+    replaces: z.array(z.string()).readonly().default([]),
+  }).strict());
+
+export interface InspectCrd {
+  file: string;
+  env: string;
+  replaces: readonly string[];
 }
 
 export const GeneratedBackendSchema: z.ZodType<GeneratedBackend> = z.lazy(() =>

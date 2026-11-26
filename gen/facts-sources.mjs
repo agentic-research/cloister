@@ -81,7 +81,15 @@ export function planSources(vendored) {
     if (typeof spec.api === "string" && spec.provider === undefined) {
       const source = OBJECT_SOURCES[spec.api];
       if (!source) throw new Error(`${file} is a projection of the ${spec.api} API, and OBJECT_SOURCES does not say where ${spec.api} publishes its documents`);
-      objects.push({ file, api: spec.api, version: spec.version, source });
+      // Several files may be built from one API's documents (Kubernetes'
+      // kinds, and ObjectMeta's schema). They are fetched once, so they must
+      // be of one release.
+      const same = objects.find((o) => o.api === spec.api);
+      if (same && same.version !== spec.version) {
+        throw new Error(`${file} records ${spec.api} ${spec.version}, and ${same.files[0]} records ${same.version}: projections of one API are of one release`);
+      }
+      if (same) same.files.push(file);
+      else objects.push({ files: [file], api: spec.api, version: spec.version, source });
     } else if (typeof spec.provider === "string" && spec.api === undefined) {
       if (!PROVIDER.test(spec.provider)) throw new Error(`${file} names its provider ${JSON.stringify(spec.provider)}, which is not <namespace>/<type>`);
       providers.push({ file, provider: spec.provider, version: spec.version });

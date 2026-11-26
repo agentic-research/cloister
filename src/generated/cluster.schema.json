@@ -146,6 +146,16 @@
       "required": ["from", "name", "appProtocol", "targets", "minStrength"],
       "additionalProperties": false
     },
+    "Inspect": {
+      "type": "object",
+      "description": "The CRDs and mapping files this checkout supplies to `cloister inspect`.",
+      "properties": {
+        "mappings": { "type": "array", "items": { "type": "string" }, "description": "Mapping files holding entries for the kinds of object a resource holds whole, such as a custom resource in a kubernetes_manifest." },
+        "crds": { "type": "array", "items": { "$ref": "#/$defs/InspectCrd" }, "description": "The CRDs the kinds are checked against, as the cluster has them." }
+      },
+      "required": ["mappings", "crds"],
+      "additionalProperties": false
+    },
     "Cluster": {
       "type": "object",
       "description": "A cloister cluster: its bundles, how they connect, and the gateway in front of them.",
@@ -158,9 +168,10 @@
         "routes": { "type": "array", "items": { "$ref": "#/$defs/Route" }, "description": "The HTTP routes the gateway serves." },
         "gateway": { "$ref": "#/$defs/Gateway", "description": "The gateway's own identity and policy, and its vault proxy services, harness targets and skills." },
         "edges": { "type": "array", "items": { "$ref": "#/$defs/EdgeSpec" }, "description": "Cross-tenant edges: which tenant may reach which, and for what protocol." },
-        "connections": { "type": "array", "items": { "$ref": "#/$defs/ConnectionSpec" }, "description": "Declared outbound connections: which bundle dials which bundle's port, per environment." }
+        "connections": { "type": "array", "items": { "$ref": "#/$defs/ConnectionSpec" }, "description": "Declared outbound connections: which bundle dials which bundle's port, per environment." },
+        "inspect": { "$ref": "#/$defs/Inspect", "description": "The CRDs and mapping files this checkout supplies to `cloister inspect`." }
       },
-      "required": ["metadata", "bundles", "wires", "storage", "inputs", "routes", "gateway", "edges", "connections"],
+      "required": ["metadata", "bundles", "wires", "storage", "inputs", "routes", "gateway", "edges", "connections", "inspect"],
       "additionalProperties": false
     },
     "WorkerdBundle": {
@@ -565,6 +576,17 @@
         "port": { "type": "string", "description": "The name of a port on the target bundle whose expose is not 'none'." }
       },
       "required": ["env", "bundle", "port"],
+      "additionalProperties": false
+    },
+    "InspectCrd": {
+      "type": "object",
+      "description": "A CRD file, the environment it is for, and the kinds it replaces.",
+      "properties": {
+        "file": { "type": "string", "description": "The CRD file: `kubectl get crd <name> -o yaml`, or the vendor's release file." },
+        "env": { "type": "string", "description": "The environment this CRD is for, named by a placement or connection row. Empty means every environment." },
+        "replaces": { "type": "array", "items": { "type": "string" }, "description": "Each kind ('<apiVersion> <kind>') this file defines that is defined already, and this file replaces." }
+      },
+      "required": ["file", "env", "replaces"],
       "additionalProperties": false
     },
     "GeneratedBackend": {

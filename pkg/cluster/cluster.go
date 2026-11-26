@@ -275,6 +275,14 @@ type ConnectionSpec struct {
 	MinStrength string `json:"minStrength"`
 }
 
+// The CRDs and mapping files this checkout supplies to `cloister inspect`.
+type Inspect struct {
+	// Mapping files holding entries for the kinds of object a resource holds whole, such as a custom resource in a kubernetes_manifest.
+	Mappings []string `json:"mappings"`
+	// The CRDs the kinds are checked against, as the cluster has them.
+	Crds []InspectCrd `json:"crds"`
+}
+
 // A cloister cluster: its bundles, how they connect, and the gateway in front of them.
 type Cluster struct {
 	// The cluster's name and version.
@@ -295,6 +303,8 @@ type Cluster struct {
 	Edges []EdgeSpec `json:"edges"`
 	// Declared outbound connections: which bundle dials which bundle's port, per environment.
 	Connections []ConnectionSpec `json:"connections"`
+	// The CRDs and mapping files this checkout supplies to `cloister inspect`.
+	Inspect Inspect `json:"inspect"`
 }
 
 // A bundle that runs as a v8 isolate inside the router's workerd.
@@ -673,6 +683,16 @@ type ConnectionTarget struct {
 	Bundle string `json:"bundle"`
 	// The name of a port on the target bundle whose expose is not 'none'.
 	Port string `json:"port"`
+}
+
+// A CRD file, the environment it is for, and the kinds it replaces.
+type InspectCrd struct {
+	// The CRD file: `kubectl get crd <name> -o yaml`, or the vendor's release file.
+	File string `json:"file"`
+	// The environment this CRD is for, named by a placement or connection row. Empty means every environment.
+	Env string `json:"env"`
+	// Each kind ('<apiVersion> <kind>') this file defines that is defined already, and this file replaces.
+	Replaces []string `json:"replaces"`
 }
 
 type GeneratedBackend struct {

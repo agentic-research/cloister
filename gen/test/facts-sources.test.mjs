@@ -32,7 +32,16 @@ test("every shipped projection has a source, at the release it records", () => {
     ],
   );
   assert.deepEqual(providers.map((p) => p.file), ["cloudflare.schema.json", "google.schema.json", "kubernetes.schema.json"]);
-  assert.equal(objects.length + providers.length, vendored.length);
+  // Kubernetes' documents are fetched once for both files built from them.
+  assert.deepEqual(objects.map((o) => o.files), [["knative-serving.schema.json"], ["kubernetes-api.schema.json", "kubernetes-object-meta.schema.json"]]);
+  assert.equal(objects.flatMap((o) => o.files).length + providers.length, vendored.length);
+});
+
+test("files built from one API's documents are of one release", () => {
+  assert.throws(
+    () => planSources([spec("a.json", { api: "kubernetes", version: "1.37.0" }), spec("b.json", { api: "kubernetes", version: "1.36.0" })]),
+    /b\.json records kubernetes 1\.36\.0, and a\.json records 1\.37\.0: projections of one API are of one release/,
+  );
 });
 
 test("each provider is installed at exactly the version its projection records", () => {

@@ -28,7 +28,22 @@ const AUTHORITY_KEYS = new Set([
  * names that script"); the report shows them beside declarations and nothing
  * consumes them as authority.
  */
-export function makeFact(fields) {
+/**
+ * The mapping entry that read a fact, held on the fact itself. A symbol, and
+ * not enumerable, so it is no field of the fact: JSON, the report and every
+ * walk over a fact's values never see it.
+ */
+const ENTRY = Symbol("the entry that read this fact");
+
+/**
+ * The mapping entry that read `fact`, or undefined for a fact no mapping
+ * entry read (a wrangler config's). What a fact means is asked of the entry
+ * that read it, never looked up again by its type: a run may read with
+ * entries a checkout supplies (ADR-0073, amendment of 2026-11-24).
+ */
+export const entryOf = (fact) => (fact && typeof fact === "object" ? fact[ENTRY] : undefined);
+
+export function makeFact(fields, { entry } = {}) {
   for (const key of Object.keys(fields)) {
     if (AUTHORITY_KEYS.has(key)) {
       throw new Error(
@@ -44,13 +59,15 @@ export function makeFact(fields) {
       throw new Error(`a resource fact needs a non-empty "${key}"`);
     }
   }
-  return deepFreeze(printable({
+  const fact = printable({
     source: fields.source,
     address: fields.address,
     type: fields.type,
     name: typeof fields.name === "string" ? fields.name : "",
     attrs: fields.attrs ?? {},
-  }));
+  });
+  if (entry !== undefined) Object.defineProperty(fact, ENTRY, { value: entry, enumerable: false });
+  return deepFreeze(fact);
 }
 
 /**

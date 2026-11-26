@@ -438,6 +438,11 @@ function unflattenForSchema(raw) {
   // pre-ADR-0030 cluster.toml has no edges; single-tenant deployments
   // never declare any).
   out.edges = unflattenEdges(raw.edges);
+  // ADR-0073, amendment of 2026-11-24 — `[inspect]`: the CRDs and mapping
+  // files the checkout supplies to `cloister inspect`. Missing → empty
+  // (cloister's own schemas and entries only); the schema gives each field
+  // its default, and refuses a key it does not define.
+  out.inspect = raw.inspect === undefined ? {} : raw.inspect;
   return out;
 }
 

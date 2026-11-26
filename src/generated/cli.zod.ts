@@ -620,6 +620,61 @@ export interface ConfigurationReference {
   name: string;
 }
 
+/** A file the checkout supplied to `cloister inspect`. */
+export const CheckoutFileSchema: z.ZodType<CheckoutFile> = z.lazy(() =>
+  z.object({
+    /** The path, as cluster.toml or the flag names it. */
+    file: z.string().default(""),
+    /** 'crd' or 'mapping'. */
+    holds: z.string().default(""),
+    /** Where it is named: 'cluster.toml', '--crd' or '--mapping'. */
+    from: z.string().default(""),
+    /** The environment a CRD row is for. Empty means every environment. */
+    env: z.string().default(""),
+    /** Whether this run read it: a CRD row for another environment is not. */
+    applies: z.boolean().default(false),
+  }).strict());
+
+export interface CheckoutFile {
+  file: string;
+  holds: string;
+  from: string;
+  env: string;
+  applies: boolean;
+}
+
+/** A kind of object the checkout added or changed: the schema it was checked against, what that replaced, and the entry that read it. */
+export const CheckedKindSchema: z.ZodType<CheckedKind> = z.lazy(() =>
+  z.object({
+    /** '<apiVersion> <kind>'. */
+    kind: z.string().default(""),
+    /** The CRD file the kind was checked against, or the projection cloister ships. */
+    schema: z.string().default(""),
+    /** The definition that schema replaced. Empty when it replaced none. */
+    replaced: z.string().default(""),
+    /** The mapping file whose entry read the kind, or 'cloister'. */
+    entry: z.string().default(""),
+  }).strict());
+
+export interface CheckedKind {
+  kind: string;
+  schema: string;
+  replaced: string;
+  entry: string;
+}
+
+/** What the checkout supplied ([inspect] in cluster.toml, --crd, --mapping), and what each file checked. */
+export const InspectCheckoutSchema: z.ZodType<InspectCheckout> = z.lazy(() =>
+  z.object({
+    files: z.array(CheckoutFileSchema).readonly().default([]),
+    kinds: z.array(CheckedKindSchema).readonly().default([]),
+  }).strict());
+
+export interface InspectCheckout {
+  files: readonly CheckoutFile[];
+  kinds: readonly CheckedKind[];
+}
+
 /** The output of `cloister inspect --json`. */
 export const InspectReportSchema: z.ZodType<InspectReport> = z.lazy(() =>
   z.object({
@@ -645,6 +700,8 @@ export const InspectReportSchema: z.ZodType<InspectReport> = z.lazy(() =>
     unlisted: z.array(UnlistedResourceSchema).readonly().default([]),
     findings: z.array(FindingSchema).readonly().default([]),
     skipped: z.array(SkippedTypeSchema).readonly().default([]),
+    /** What the checkout supplied, and what it checked. Empty lists when it supplied nothing. */
+    checkout: InspectCheckoutSchema,
   }).strict());
 
 export interface InspectReport {
@@ -666,5 +723,6 @@ export interface InspectReport {
   unlisted: readonly UnlistedResource[];
   findings: readonly Finding[];
   skipped: readonly SkippedType[];
+  checkout: InspectCheckout;
 }
 

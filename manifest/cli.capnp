@@ -306,6 +306,26 @@ struct ConfigurationReference $Traits.doc("A resource the configuration wires in
   name     @2 :Text;
 }
 
+struct CheckoutFile $Traits.doc("A file the checkout supplied to `cloister inspect`.") {
+  file    @0 :Text $Traits.doc("The path, as cluster.toml or the flag names it.");
+  holds   @1 :Text $Traits.doc("'crd' or 'mapping'.");
+  from    @2 :Text $Traits.doc("Where it is named: 'cluster.toml', '--crd' or '--mapping'.");
+  env     @3 :Text $Traits.doc("The environment a CRD row is for. Empty means every environment.");
+  applies @4 :Bool $Traits.doc("Whether this run read it: a CRD row for another environment is not.");
+}
+
+struct CheckedKind $Traits.doc("A kind of object the checkout added or changed: the schema it was checked against, what that replaced, and the entry that read it.") {
+  kind     @0 :Text $Traits.doc("'<apiVersion> <kind>'.");
+  schema   @1 :Text $Traits.doc("The CRD file the kind was checked against, or the projection cloister ships.");
+  replaced @2 :Text $Traits.doc("The definition that schema replaced. Empty when it replaced none.");
+  entry    @3 :Text $Traits.doc("The mapping file whose entry read the kind, or 'cloister'.");
+}
+
+struct InspectCheckout $Traits.doc("What the checkout supplied ([inspect] in cluster.toml, --crd, --mapping), and what each file checked.") {
+  files @0 :List(CheckoutFile);
+  kinds @1 :List(CheckedKind);
+}
+
 struct InspectReport $Traits.doc("The output of `cloister inspect --json`.") {
   formatVersion             @0  :Text $Traits.doc("\"MAJOR.MINOR\". Refuse a major you do not know; ignore fields you do not know.");
   document                  @1  :TerraformDocument;
@@ -325,4 +345,5 @@ struct InspectReport $Traits.doc("The output of `cloister inspect --json`.") {
   unlisted                  @15 :List(UnlistedResource);
   findings                  @16 :List(Finding);
   skipped                   @17 :List(SkippedType);
+  checkout                  @18 :InspectCheckout $Traits.doc("What the checkout supplied, and what it checked. Empty lists when it supplied nothing.");
 }

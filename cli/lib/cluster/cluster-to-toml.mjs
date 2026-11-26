@@ -119,7 +119,27 @@ function canonicalizeCluster(c) {
   if (Array.isArray(c.connections) && c.connections.length > 0) {
     out.connections = c.connections.map(canonicalizeConnection);
   }
+  // ADR-0073, amendment of 2026-11-24: `[inspect]`, when the checkout names
+  // a file. Skipped on empty, like connections. Each CRD row keeps its order
+  // and writes only what it sets: an empty `env` is every environment.
+  const inspectTable = canonicalizeInspect(c.inspect);
+  if (inspectTable !== null) out.inspect = inspectTable;
   if (c.storage) out.storage = sortKeys(c.storage);
+  return out;
+}
+
+function canonicalizeInspect(inspect) {
+  const mappings = [...(inspect?.mappings ?? [])];
+  const crds = (inspect?.crds ?? []).map((row) => {
+    const out = { file: row.file };
+    if (row.env) out.env = row.env;
+    if ((row.replaces ?? []).length > 0) out.replaces = [...row.replaces];
+    return sortKeys(out);
+  });
+  if (mappings.length === 0 && crds.length === 0) return null;
+  const out = {};
+  if (crds.length > 0) out.crds = crds;
+  if (mappings.length > 0) out.mappings = mappings;
   return out;
 }
 

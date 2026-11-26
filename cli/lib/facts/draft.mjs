@@ -46,7 +46,7 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
   if (!["kubernetes", "knative"].includes(localKind)) throw new Error(`--local-kind "${localKind}" is not one of kubernetes, knative`);
   if (local !== undefined && local === env) throw new Error(`--local and --env are both "${env}"; a second placement needs a second environment`);
   const notes = [];
-  const workloads = sectionsOf(imported.facts, imported.kind, { withRun: true })
+  const workloads = sectionsOf(imported.facts, imported.kind, { withRun: true, registry: imported.registry })
     .flatMap((section) => section.resources.map((r) => ({ ...r, section: section.title })))
     .filter((r) => r.bundle);
 

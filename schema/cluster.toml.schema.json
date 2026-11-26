@@ -70,6 +70,10 @@
         "$ref": "#/$defs/ConnectionSpec"
       },
       "description": "Declared outbound connections: which bundle dials which bundle's port, per environment."
+    },
+    "inspect": {
+      "$ref": "#/$defs/Inspect",
+      "description": "The CRDs and mapping files this checkout supplies to `cloister inspect`."
     }
   },
   "required": [
@@ -554,6 +558,27 @@
         "minStrength": {
           "type": "string",
           "description": "The weakest enforcement this edge may have: 'none', 'policy' or 'capability'. The build fails if the two ends' placements deliver less. Empty means no floor."
+        }
+      }
+    },
+    "Inspect": {
+      "type": "object",
+      "description": "The CRDs and mapping files this checkout supplies to `cloister inspect`.",
+      "additionalProperties": false,
+      "properties": {
+        "mappings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Mapping files holding entries for the kinds of object a resource holds whole, such as a custom resource in a kubernetes_manifest."
+        },
+        "crds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InspectCrd"
+          },
+          "description": "The CRDs the kinds are checked against, as the cluster has them."
         }
       }
     },
@@ -1400,6 +1425,28 @@
         "port": {
           "type": "string",
           "description": "The name of a port on the target bundle whose expose is not 'none'."
+        }
+      }
+    },
+    "InspectCrd": {
+      "type": "object",
+      "description": "A CRD file, the environment it is for, and the kinds it replaces.",
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "The CRD file: `kubectl get crd <name> -o yaml`, or the vendor's release file."
+        },
+        "env": {
+          "type": "string",
+          "description": "The environment this CRD is for, named by a placement or connection row. Empty means every environment."
+        },
+        "replaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Each kind ('<apiVersion> <kind>') this file defines that is defined already, and this file replaces."
         }
       }
     },

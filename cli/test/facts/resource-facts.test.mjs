@@ -15,7 +15,8 @@ import { main as inspectMain, isGitTracked, withoutGitEnv } from "../../commands
 import { CLOUDFLARE_MAPPING, CLOUDFLARE_SPEC, CLOUDFLARE_TYPES, GOOGLE_MAPPING, GOOGLE_SPEC, KUBERNETES_MAPPING, KUBERNETES_SPEC, importResource } from "../../lib/facts/cloudflare.mjs";
 import { validateMapping, validateWranglerKeys } from "../../lib/facts/validate.mjs";
 import { WRANGLER_MAPPING, importWrangler } from "../../lib/facts/wrangler.mjs";
-import { projectSpec, renderSpec } from "../../../gen/facts-spec.mjs";
+import { projectSpec } from "../../../gen/facts-spec.mjs";
+import { renderSpec } from "../../lib/facts/object-spec.mjs";
 import { FACT_KEYS, isMarkedSensitive, makeFact, pickPublic } from "../../lib/facts/facts.mjs";
 import { parseTomlToCluster } from "../../lib/cluster/toml-to-cluster.mjs";
 import { draftCluster } from "../../lib/facts/draft.mjs";

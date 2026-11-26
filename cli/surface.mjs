@@ -450,7 +450,7 @@ export const COMMANDS = [
   {
     name: "inspect",
     standalone: true,
-    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>] | cloister inspect --terraform <file> --draft --env <name> [--local <env> [--local-kind <kind>]] [--name <name>]",
+    usage: "cloister inspect [--terraform <file>] [--wrangler <file>]... [--crd <file>]... [--mapping <file>]... [--dir <path>] [--env <name>] [--json] [--fail-on <kinds>] | cloister inspect --terraform <file> --draft --env <name> [--crd <file>]... [--mapping <file>]... [--local <env> [--local-kind <kind>]] [--name <name>]",
     summary: "Report what a rendered Terraform document and wrangler configs describe, beside cluster.toml",
     detail:
       "Reads the output of `terraform show -json` (or `tofu show -json`), state or " +
@@ -486,10 +486,14 @@ export const COMMANDS = [
       "existing cluster.toml is not read. Its header lists what the inputs did not show: " +
       "an env block marked sensitive, a port that was assumed, an edge whose target is " +
       "not a workload, a resource type no mapping reads. Committing the draft is what " +
-      "makes it a declaration. ADR-0073, ADR-0074.",
+      "makes it a declaration. A checkout supplies the CRDs and entries for kinds cloister " +
+      "does not ship in cluster.toml's [inspect], or for one run with --crd and --mapping; " +
+      "the report says what checked each kind. ADR-0073, ADR-0074.",
     flags: [
       { flag: "--terraform", value: "<file>", summary: "`terraform show -json` output (state or plan); must not be tracked by git" },
       { flag: "--wrangler", value: "<file>", summary: "a wrangler.toml or wrangler.json to read bindings from; repeatable (at least one of --terraform / --wrangler is required)" },
+      { flag: "--crd", value: "<file>", summary: "a CRD to check a kind cloister ships no schema for against, for this run; repeatable. It may only add kinds: replacing one is declared in cluster.toml's [[inspect.crds]]" },
+      { flag: "--mapping", value: "<file>", summary: "a mapping file of entries for kinds of object a resource holds whole, for this run; repeatable. cluster.toml's [inspect] mappings names the checkout's own" },
       { flag: "--dir", value: "<path>", summary: "cluster directory holding cluster.toml (default: the current directory, if it has one)" },
       { flag: "--env", value: "<name>", summary: "the environment these inputs describe; declared connections are compared for that environment only (default: every environment)" },
       { flag: "--json", summary: "print the report as JSON: the InspectReport format in schema/cli.schema.json, versioned by formatVersion" },

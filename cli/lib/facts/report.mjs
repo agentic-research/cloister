@@ -16,7 +16,8 @@
 
 import { checkableBundle, placementName, portsFor, secretBorne } from "../cluster/connections.mjs";
 import { addressesIn } from "../cluster/manifest-addresses.mjs";
-import { WITHHELD_FIELDS, bindingTarget, isWorkloadBinding, mappedEntries, mappedType, resolveBinding, resolveRelations } from "./cloudflare.mjs";
+import { SHIPPED, WITHHELD_FIELDS, bindingTarget, isWorkloadBinding, resolveBinding, resolveRelations } from "./cloudflare.mjs";
+import { entryOf } from "./facts.mjs";
 
 const SCRIPT = "cloudflare_workers_script";
 const WRANGLER = "wrangler_worker";
@@ -69,7 +70,7 @@ function hostOf(value) {
  * an edge is never guessed. A resource with no `standsFor` is itself.
  */
 function standsFor(fact, facts) {
-  const rule = mappedType(fact.type)?.report?.standsFor;
+  const rule = entryOf(fact)?.report?.standsFor;
   if (!rule) return fact;
   const selector = Object.entries(fact.attrs.maps?.[rule.selector] ?? {});
   if (selector.length === 0) return null;
@@ -102,7 +103,7 @@ function dialsOf(fact, entry, facts, kind, addressed) {
     const existing = out.find((d) => d.address === target.address);
     // The value itself is better evidence than the reference it was built from.
     if (existing) { if (existing.by === "configuration" && by === "address") Object.assign(existing, { by, where }); return; }
-    out.push({ address: target.address, to: target.name, section: mappedType(target.type)?.report?.section ?? "", by, where });
+    out.push({ address: target.address, to: target.name, section: entryOf(target)?.report?.section ?? "", by, where });
   };
   for (const dial of entry.report.dials ?? []) {
     for (const row of fact.attrs[dial.list] ?? []) {
@@ -123,7 +124,7 @@ function dialsOf(fact, entry, facts, kind, addressed) {
         const target = facts.find((f) => f.address === address);
         // Where in the block the reference is written, when the configuration says.
         const site = (fact.attrs.referenceSites?.[attr] ?? []).find((s) => s.address === address);
-        if (target && mappedType(target.type)?.report) add(target, "configuration", site?.where ?? attr);
+        if (target && entryOf(target)?.report) add(target, "configuration", site?.where ?? attr);
       }
     }
   }
@@ -234,7 +235,7 @@ function addressedBy(value, fact, facts, addressed) {
   const targets = addressed.get(url.hostname) ?? [];
   if (targets.length !== 1) return null;
   const target = standsFor(targets[0], facts);
-  if (!target || target.address === fact.address || !mappedType(target.type)?.report?.bundle) return null;
+  if (!target || target.address === fact.address || !entryOf(target)?.report?.bundle) return null;
   if (url.username || url.password) return null;
   const path = `${url.pathname === "/" && !value.endsWith("/") ? "" : url.pathname}${url.search}`;
   return { target, path };
@@ -258,13 +259,13 @@ function envOf(fact, rule, facts, addressed = new Map()) {
       // it is written as a literal. It is still an address: different in
       // every placement, so it is carried as a binding and not as text.
       const dialled = addressedBy(String(value.constant), fact, facts, addressed);
-      if (dialled) out.push({ name, kind: "workload", to: dialled.target.name, section: mappedType(dialled.target.type).report.section, path: dialled.path });
+      if (dialled) out.push({ name, kind: "workload", to: dialled.target.name, section: entryOf(dialled.target).report.section, path: dialled.path });
       else out.push({ name, kind: "constant", value: String(value.constant) });
     } else if (value) {
       const targets = value.references.map((address) => facts.find((f) => f.address === address)).map((f) => (f ? standsFor(f, facts) : f));
-      const workloads = targets.filter((f) => f && mappedType(f.type)?.report?.bundle);
+      const workloads = targets.filter((f) => f && entryOf(f)?.report?.bundle);
       if (workloads.length === 1 && targets.length === 1 && value.unresolved.length === 0) {
-        out.push({ name, kind: "workload", to: workloads[0].name, section: mappedType(workloads[0].type).report.section });
+        out.push({ name, kind: "workload", to: workloads[0].name, section: entryOf(workloads[0]).report.section });
       } else {
         out.push({ name, kind: "unknown", from: [...value.references, ...value.unresolved] });
       }
@@ -309,7 +310,7 @@ function valueEnvOf(fact, rule, facts, addressed) {
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
       const dialled = addressedBy(String(value), fact, facts, addressed);
       if (dialled) {
-        out.push({ name, kind: "workload", to: dialled.target.name, section: mappedType(dialled.target.type).report.section, path: dialled.path });
+        out.push({ name, kind: "workload", to: dialled.target.name, section: entryOf(dialled.target).report.section, path: dialled.path });
         continue;
       }
       if (asWritten) {
@@ -328,15 +329,20 @@ function valueEnvOf(fact, rule, facts, addressed) {
 /** The report's declared sections. Exported for the draft, which reads the same resources. */
 export const sectionsOf = (facts, kind, options) => declaredSections(facts, kind, options);
 
-function declaredSections(facts, kind, { withRun = false } = {}) {
-  const byType = (type) => facts.filter((f) => f.type === type);
-  const entries = mappedEntries();
+/**
+ * `registry` is the mappings the facts were read with (importFacts returns
+ * it): its entries declare the sections, in their order, and each section
+ * holds the facts its entry read.
+ */
+function declaredSections(facts, kind, { withRun = false, registry = SHIPPED } = {}) {
+  const readBy = (entry) => facts.filter((f) => entryOf(f) === entry);
+  const entries = registry.mappedEntries();
   const sections = new Map();
   // host → the resources reached there, for every type that declares an address.
   const addressed = new Map();
-  for (const [type, entry] of entries) {
+  for (const [, entry] of entries) {
     if (!entry.report?.address && !entry.report?.hosts) continue;
-    for (const fact of byType(type)) {
+    for (const fact of readBy(entry)) {
       const hosts = [];
       if (entry.report.address) hosts.push(hostOf(fact.attrs[entry.report.address]));
       // Names a resource answers to that are built, not stored: a cluster
@@ -349,10 +355,11 @@ function declaredSections(facts, kind, { withRun = false } = {}) {
     if (!entry.report) continue;
     const accessTypes = entries.filter(([, e]) => e.access && (e.relations ?? []).some((r) => r.toType === type));
     const labels = [...new Set(accessTypes.flatMap(([, e]) => Object.values(e.access.roles)))];
-    const resources = byType(type).map((fact) => {
+    const resources = readBy(entry).map((fact) => {
       const access = [];
-      for (const [accessType, { access: rule }] of accessTypes) {
-        for (const row of byType(accessType)) {
+      for (const [, accessEntry] of accessTypes) {
+        const rule = accessEntry.access;
+        for (const row of readBy(accessEntry)) {
           const role = row.attrs[rule.role];
           const principal = row.attrs[rule.principal];
           // Own property only: the role comes from the document.
@@ -569,7 +576,12 @@ function compareConnections(sections, cluster, env) {
 /** How a dialled edge was found, in words. */
 const dialHow = (dial) => (dial.by === "address" ? dial.where : `referenced by configuration in ${dial.where}`);
 
-export function buildReport({ facts, skipped, kind, formatVersion }, cluster, { env } = {}) {
+/**
+ * `checkout` is what the checkout supplied, from readWithCheckout
+ * (checkout.mjs): its files, and each kind it added or changed. The report
+ * says what checked each kind, so a reviewer sees the check grow.
+ */
+export function buildReport({ facts, skipped, kind, formatVersion, registry }, cluster, { env, checkout = null } = {}) {
   const byType = (type) => facts.filter((f) => f.type === type);
 
   // Workers: Terraform scripts, Terraform Workers with their versions, and
@@ -669,7 +681,7 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster, { 
     }
   }
 
-  const sections = declaredSections(facts, kind);
+  const sections = declaredSections(facts, kind, { registry });
   const connections = compareConnections(sections, cluster, env);
 
   const workerNames = new Set(workers.map((w) => w.name));
@@ -721,6 +733,7 @@ export function buildReport({ facts, skipped, kind, formatVersion }, cluster, { 
     unlisted: connections.unlisted,
     findings: [...findings, ...connections.findings],
     skipped,
+    checkout,
   };
 }
 
@@ -752,6 +765,18 @@ export function renderReport(report) {
     (kind ? `Terraform ${kind} document (format ${formatVersion}). ` : "No Terraform document given. ") +
       "Read-only: nothing was run or written.",
   );
+  if (report.checkout) {
+    // What the checkout changed about the check comes first: it is what a
+    // reviewer of the checkout has to see (ADR-0073, amendment of 2026-11-24).
+    section("Checked with the checkout's files:");
+    for (const k of report.checkout.kinds) {
+      lines.push(`  ${k.kind}: schema ${k.schema}${k.replaced ? `, replacing ${k.replaced}` : ""}; read by ${k.entry === "cloister" ? "cloister's entry" : k.entry}`);
+    }
+    for (const f of report.checkout.files) {
+      const where = [f.from, f.env && `for ${f.env}`].filter(Boolean).join(", ");
+      lines.push(`  file: ${f.file} (${f.holds}, ${where})${f.applies ? "" : "  not read for this environment"}`);
+    }
+  }
 
   section("Discovered workloads:");
   if (report.workloads.length === 0) lines.push("  (none)");

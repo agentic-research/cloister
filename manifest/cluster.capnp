@@ -112,6 +112,37 @@ struct Cluster $Traits.doc("A cloister cluster: its bundles, how they connect, a
   #
   # Append-only ordinal per ADR-0004.
   connections @8 :List(ConnectionSpec) $Traits.doc("Declared outbound connections: which bundle dials which bundle's port, per environment.");
+
+  # ── Inspect (ADR-0073, amendment of 2026-11-24) ─────────────────────────
+  #
+  # The files the checkout supplies to `cloister inspect` (and so to the
+  # plan-check Action): CRDs for the kinds cloister ships no schema for, and
+  # the mapping entries that say what each kind means. Declared here rather
+  # than only in flags so the checkout carries its own check: flags alone
+  # would leave the list in every caller, free to differ.
+  #
+  # Absent = cloister's own schemas and entries only (back-compat default).
+  #
+  # Append-only ordinal per ADR-0004.
+  inspect @9 :Inspect $Traits.doc("The CRDs and mapping files this checkout supplies to `cloister inspect`.");
+}
+
+# ── Inspect (ADR-0073, amendment of 2026-11-24) ──────────────────────────
+#
+# Every path is relative to cluster.toml, and inside the checkout.
+struct Inspect $Traits.doc("The CRDs and mapping files this checkout supplies to `cloister inspect`.") {
+  mappings @0 :List(Text) $Traits.doc("Mapping files holding entries for the kinds of object a resource holds whole, such as a custom resource in a kubernetes_manifest.");
+  crds     @1 :List(InspectCrd) $Traits.doc("The CRDs the kinds are checked against, as the cluster has them.");
+}
+
+# One CRD file. A kind it defines that is defined already, by a projection
+# cloister ships or (for a row naming an environment) by a row for every
+# environment, must be listed in `replaces`: a declaration wins only where it
+# says it does, and nothing is decided by precedence.
+struct InspectCrd $Traits.doc("A CRD file, the environment it is for, and the kinds it replaces.") {
+  file     @0 :Text $Traits.doc("The CRD file: `kubectl get crd <name> -o yaml`, or the vendor's release file.");
+  env      @1 :Text $Traits.doc("The environment this CRD is for, named by a placement or connection row. Empty means every environment.");
+  replaces @2 :List(Text) $Traits.doc("Each kind ('<apiVersion> <kind>') this file defines that is defined already, and this file replaces.");
 }
 
 struct ClusterMetadata $Traits.doc("Names the cluster.") {
