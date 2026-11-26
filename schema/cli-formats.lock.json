@@ -56,7 +56,7 @@
       }
     },
     "InspectReport": {
-      "formatVersion": "1.1",
+      "formatVersion": "1.2",
       "shape": {
         "AccessApplication": {
           "fields": {
@@ -86,7 +86,8 @@
           "fields": {
             "label": "string",
             "principal": "string",
-            "public": "boolean"
+            "public": "boolean",
+            "conditional": "boolean"
           }
         },
         "AccessRowRef": {

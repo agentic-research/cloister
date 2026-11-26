@@ -97,7 +97,7 @@ export function declaredReport(report) {
         name: r.name,
         attributes: attributesOf(r.attrs),
         identity: r.identity ?? "",
-        access: (r.access ?? []).map(({ label, principal, public: open }) => ({ label, principal, public: open === true })),
+        access: (r.access ?? []).map(({ label, principal, public: open, conditional }) => ({ label, principal, public: open === true, conditional: conditional === true })),
         accessLabels: [...(r.accessLabels ?? [])],
         withheld: [...(r.withheld ?? [])],
         dials: (r.dials ?? []).map(({ to, section, by, where }) => ({ from: r.name, to, section, by, where })),

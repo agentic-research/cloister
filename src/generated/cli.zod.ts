@@ -424,12 +424,15 @@ export const AccessRowSchema: z.ZodType<AccessRow> = z.lazy(() =>
     principal: z.string().default(""),
     /** True when the row admits anyone. */
     public: z.boolean().default(false),
+    /** True when the grant is made under a condition, which cloister does not evaluate: it holds only when the condition does. */
+    conditional: z.boolean().default(false),
   }).strict());
 
 export interface AccessRow {
   label: string;
   principal: string;
   public: boolean;
+  conditional: boolean;
 }
 
 /** A resource in a report section. */

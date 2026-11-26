@@ -401,7 +401,8 @@ test("cloister inspect reads cluster.toml's [inspect] files, says what checked e
   assert.doesNotMatch(text.stdout, /Not read/);
 
   const json = JSON.parse((await run(["--terraform", planFile, "--dir", dir, "--env", "prod", "--json"])).stdout);
-  assert.equal(json.formatVersion, "1.1");
+  const { formatVersion } = await import("../../lib/output-format.mjs");
+  assert.equal(json.formatVersion, formatVersion("InspectReport"));
   assert.deepEqual(json.checkout.kinds, [{ kind: WIDGET, schema: "crds/prod/widgets.yaml", replaced: "crds/widgets.yaml", entry: "inspect.mapping.json" }]);
   assert.deepEqual(json.checkout.files.map((f) => [f.file, f.applies]), [["crds/widgets.yaml", true], ["crds/prod/widgets.yaml", true], ["inspect.mapping.json", true]]);
 
