@@ -507,6 +507,24 @@ Providers are the same rule, later: a checkout's provider projection, made by
 `gen/facts-spec.mjs` from `tofu providers schema -json`, for a type cloister
 does not ship.
 
+**Amendment (2026-11-26): a setting that turns a check off is read, and a
+value is sorted only by what it decides.** A review of how Cloud Run is read
+found two places where the plan's own setting was not taken for what it says:
+
+- **`invoker_iam_disabled = true`** turns Cloud Run's invoker check off:
+  anyone the network lets through may call the service. Only invoker member
+  rows were read, so access was reported unknown where the plan says it is
+  open. A mapping may now name such a setting (`report.unchecked`, a bool the
+  entry reads, and the label it opens), and when it is true the label is
+  granted to anyone, as a public member row grants it. A connection to the
+  service is then contradicted, as it is by an `allUsers` row.
+- **`INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` is unknown, not edge.** It admits
+  traffic from outside only through an external load balancer, and cloister
+  reads no load balancer, so whether one fronts the service is not in what it
+  reads. Sorting it as reachable from outside assumed one. A mapping may leave
+  a value unsorted and say why (`exposure.unsorted`), and the report and the
+  draft give that reason.
+
 ## What exists today
 
 | Part | State |

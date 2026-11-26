@@ -6,6 +6,8 @@
 //
 // The raw `.tfstate` file is a different, undocumented format and is refused.
 
+import { atRow } from "./facts.mjs";
+
 /** The only document major version this reader understands. */
 export const SUPPORTED_FORMAT_MAJOR = 1;
 
@@ -115,15 +117,17 @@ export function expressionSources(expression) {
  * nested blocks (`value_source.secret_key_ref.secret`).
  */
 export function configuredRows(expressions, path, fields) {
-  let level = [expressions];
+  // Each row keeps its place, as a row of the planned values does
+  // (cloudflare.mjs rowsAt): a block is a list in both, item for item.
+  let level = [{ node: expressions, at: [] }];
   for (const segment of path.split(".")) {
-    level = level.flatMap((node) => {
+    level = level.flatMap(({ node, at }) => {
       const inner = node && typeof node === "object" && !Array.isArray(node) ? node[segment] : undefined;
-      return Array.isArray(inner) ? inner : [];
+      return Array.isArray(inner) ? inner.map((item, index) => ({ node: item, at: [...at, index] })) : [];
     });
   }
   const rows = [];
-  for (const node of level) {
+  for (const { node, at } of level) {
     if (!node || typeof node !== "object") continue;
     const row = {};
     for (const field of fields) {
@@ -136,7 +140,7 @@ export function configuredRows(expressions, path, fields) {
       const value = configuredField(at && typeof at === "object" ? at[segments.at(-1)] : undefined);
       if (value) row[field] = value;
     }
-    if (Object.keys(row).length) rows.push(row);
+    if (Object.keys(row).length) rows.push(atRow(row, at.join(".")));
   }
   return rows;
 }

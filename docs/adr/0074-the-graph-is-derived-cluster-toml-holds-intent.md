@@ -390,6 +390,34 @@ Deployment and Service (`port: 80, targetPort: 8080` when a row says so) or to
 a Knative Service (`containerPort: 8080`, dialled on 80). `inspect --draft
 --local <env> --local-kind knative` writes the row for each port.
 
+#### A bundle is one container (amendment 2026-11-26)
+
+A workload may run several containers: a Cloud Run service or a Knative
+Service with a sidecar beside the one that serves, a pod with a proxy. A
+bundle is one process. The draft read its image from the first container and
+its args and env from all of them, so a service with a sidecar was drafted as
+one process holding both containers' arguments, and an env name twice.
+
+- **What a bundle is started with is read from one container**: its image,
+  command, args, env and ports. With one container, that one.
+- **With several, the one the platform says serves.** Cloud Run and Knative
+  let only that container have a port, so the container with a port is the
+  one. A mapping says where its platform states this (`container.serving`).
+  The other containers are named in the draft's header, and not drafted.
+- **Kubernetes says no container serves.** A pod of several is not drafted,
+  whichever container has a port, and the header names its containers.
+  Several Cloud Run containers with no single one holding a port are not
+  drafted either.
+- **What the workload dials is still the workload's.** Its containers share
+  its network and its identity, so an edge from a sidecar is an edge from the
+  service, and is reported as one.
+
+Each list row the facts reader keeps records where it sits in the document,
+as no field of the row, so a container's env and ports are told from its
+sidecar's. A mapping that drafts a bundle must name the list of the
+workload's containers (`container.list`), and its validator refuses one that
+does not, so the merge cannot come back through a new entry.
+
 #### An address kept in a secret (amendment 2026-11-19)
 
 A database URL holds a password, so it lives in a secret. The edge it
@@ -475,6 +503,7 @@ A microVM is still given no secret (above), whatever the secret holds.
 |---|---|
 | Read a rendered Terraform plan or state | built (ADR-0073) |
 | Cloud Run services and jobs, their containers, env, args and ports | built |
+| A bundle drafted from one container: the only one, or the one that serves where the platform says (amendment of 2026-11-26) | built |
 | Edges from addresses and from configuration references | built for Cloud Run |
 | `ingress` beside a port's `expose` | built (`inspect --terraform --dir`) |
 | Access rows (invoker) | compared with declared connections: `evidenced` when the row names the caller's own service account, `contradicted` when the row is public, `undeclared` when a workload is granted with no connection, otherwise `unknown`. Never raises an edge's strength |

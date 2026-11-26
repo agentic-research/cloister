@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a bundle is one container; Cloud Run's own settings read as they say (ADR-0074, ADR-0073 amendments)
+
+- A draft read a bundle's image from a workload's first container and its
+  args and env from all of them, so a service with a sidecar was one bundle
+  holding both containers. A bundle is now one container: the only one, or
+  the one that serves where Cloud Run and Knative say (the one with a port).
+  The draft names the others. A Kubernetes pod of several is not drafted.
+- A workload entry must name its container list (`container`), and the
+  validator refuses one that does not.
+- A Cloud Run service with `invoker_iam_disabled = true` is reported open to
+  anyone, as an `allUsers` invoker row is, so a connection to it is
+  contradicted rather than unknown.
+- `INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER` is unknown, not edge: outside
+  traffic reaches it only through a load balancer, which cloister does not
+  read. The report and the draft say why (`exposure.unsorted`).
+
 ### 2026-11 — a checkout supplies the CRDs and entries for kinds cloister does not ship (ADR-0073 amendment)
 
 - `cluster.toml`'s new `[inspect]` table names the checkout's mapping files and

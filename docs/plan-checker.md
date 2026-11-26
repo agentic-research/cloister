@@ -92,6 +92,11 @@ StatefulSets, DaemonSets, Jobs, Services, Namespaces and Knative Services
 written as `kubernetes_manifest`), and `wrangler.toml` with `--wrangler`. Anything else
 is named on the report's "Not read" line.
 
+A bundle is one container. A Cloud Run or Knative service with a sidecar is
+drafted from the container that serves (the only one allowed a port), and the
+draft names the sidecar. A Kubernetes pod of several containers is not
+drafted, since Kubernetes does not say which one serves.
+
 ## Kinds cloister does not ship
 
 A custom resource cloister has no schema for (an operator's own, or a
@@ -110,7 +115,8 @@ vendor's) is read once your checkout supplies two things:
     "read": ["metadata.namespace"],
     "podTemplate": "spec.template",
     "report": { "section": "Widgets", "show": ["metadata.namespace"],
-      "bundle": { "placement": "kubernetes", "image": { "list": "containers", "value": "image" } } }
+      "bundle": { "placement": "kubernetes", "container": { "list": "containers" },
+        "image": { "list": "containers", "value": "image" } } }
   } } }
   ```
 

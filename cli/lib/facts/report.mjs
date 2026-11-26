@@ -17,7 +17,7 @@
 import { checkableBundle, placementName, portsFor, secretBorne } from "../cluster/connections.mjs";
 import { addressesIn } from "../cluster/manifest-addresses.mjs";
 import { SHIPPED, WITHHELD_FIELDS, bindingTarget, isWorkloadBinding, resolveBinding, resolveRelations } from "./cloudflare.mjs";
-import { entryOf } from "./facts.mjs";
+import { entryOf, rowAt, within } from "./facts.mjs";
 
 const SCRIPT = "cloudflare_workers_script";
 const WRANGLER = "wrangler_worker";
@@ -145,15 +145,37 @@ function principalOf(fact, rule) {
  * provider's default when the mapping states one, and that is recorded, so a
  * draft can say the port was assumed and not read.
  */
+/**
+ * The one container a bundle is drafted from (ADR-0074, amendment of
+ * 2026-11-26). A bundle is one process, and a workload may run several
+ * containers. With one, it is that one. With several, it is the one the
+ * platform says serves, where it says (`serving`: Cloud Run and Knative let
+ * only that container have a port), and otherwise none: which container is
+ * the workload is not guessed, and two are never merged into one.
+ */
+function containerOf(fact, rule) {
+  const rows = fact.attrs[rule.list] ?? [];
+  const names = rows.map((row, i) => (typeof row.name === "string" && row.name !== "" ? row.name : `#${i + 1}`));
+  if (rows.length <= 1) return { chosen: rows[0] ?? null, names };
+  if (rule.serving !== undefined) {
+    const serving = rows.filter((row) => (fact.attrs[rule.serving] ?? []).some((inner) => within(rowAt(inner), rowAt(row))));
+    if (serving.length === 1) return { chosen: serving[0], names };
+  }
+  return { chosen: null, names, undetermined: true };
+}
+
 function bundleOf(fact, rule, facts, withRun, addressed) {
-  const image = rule.image ? (fact.attrs[rule.image.list] ?? []).map((row) => row[rule.image.value]).find((v) => typeof v === "string" && v !== "") ?? "" : "";
+  const container = rule.container ? containerOf(fact, rule.container) : { chosen: null, names: [] };
+  // What is read about a process is read from its container only.
+  const mine = (rows) => (container.chosen ? rows.filter((row) => within(rowAt(row), rowAt(container.chosen))) : rows);
+  const image = rule.image && container.chosen && typeof container.chosen[rule.image.value] === "string" ? container.chosen[rule.image.value] : "";
   const ports = [];
   // A default stands in for what is absent, never for what the document
   // withholds: a port that is there, unread, is not a port that is not there.
   let portsWithheld = false;
   if (rule.ports) {
     portsWithheld = fact.attrs[`${rule.ports.list}Withheld`] === true;
-    for (const row of fact.attrs[rule.ports.list] ?? []) {
+    for (const row of mine(fact.attrs[rule.ports.list] ?? [])) {
       const hidden = row[WITHHELD_FIELDS] ?? [];
       if (hidden.includes(rule.ports.port)) { portsWithheld = true; continue; }
       const port = row[rule.ports.port];
@@ -176,16 +198,20 @@ function bundleOf(fact, rule, facts, withRun, addressed) {
       ports.push({ name, port, appProtocol: rule.wires[name], assumed: true });
     }
   }
-  const strings = (ref) => (ref ? (fact.attrs[ref.list] ?? []).flatMap((row) => row[ref.strings] ?? []) : []);
+  const strings = (ref) => (ref && container.chosen ? container.chosen[ref.strings] ?? [] : []);
   const bundle = {
     placement: rule.placement, runs: rule.runs ?? "service", image, ports, exposure: exposureOf(fact, rule.exposure),
+    // Every container the workload runs, and the one this bundle is (null
+    // when it runs several and nothing says which serves).
+    containers: container.names,
+    container: container.chosen ? container.names[(fact.attrs[rule.container.list] ?? []).indexOf(container.chosen)] : null,
     ...(portsWithheld ? { portsWithheld: true } : {}),
   };
   // What it is started with is read only when a caller is going to write a
   // manifest from it. The report never carries it: an argument or an env value
   // may hold an address or worse, and the report is printed.
   if (withRun) {
-    bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts, addressed) };
+    bundle.run = { args: strings(rule.args), command: strings(rule.command), env: envOf(fact, rule.env, facts, addressed, mine) };
     // Read from the values, a list the document withholds is missing here.
     if (rule.env?.list !== undefined) bundle.run.envFromValues = true;
   }
@@ -206,7 +232,9 @@ function exposureOf(fact, rule) {
   const value = rule.key === undefined ? fact.attrs[rule.attr] : fact.attrs.maps?.[rule.attr]?.[rule.key];
   const setting = typeof value === "string" ? value : "";
   const expose = rule.cluster.includes(setting) ? "cluster" : rule.edge.includes(setting) ? "edge" : "";
-  return { attr: rule.key === undefined ? rule.attr : `${rule.attr}["${rule.key}"]`, setting, expose };
+  // A value the mapping leaves unsorted on purpose says why.
+  const why = Object.hasOwn(rule.unsorted ?? {}, setting) ? rule.unsorted[setting] : "";
+  return { attr: rule.key === undefined ? rule.attr : `${rule.attr}["${rule.key}"]`, setting, expose, ...(why ? { why } : {}) };
 }
 
 /**
@@ -241,10 +269,11 @@ function addressedBy(value, fact, facts, addressed) {
   return { target, path };
 }
 
-function envOf(fact, rule, facts, addressed = new Map()) {
-  if (rule?.list !== undefined) return valueEnvOf(fact, rule, facts, addressed);
-  const rows = rule ? fact.attrs.configured?.[rule.configured] : undefined;
-  if (!rows) return null;
+function envOf(fact, rule, facts, addressed = new Map(), mine = (rows) => rows) {
+  if (rule?.list !== undefined) return valueEnvOf(fact, rule, facts, addressed, mine);
+  const configured = rule ? fact.attrs.configured?.[rule.configured] : undefined;
+  if (!configured) return null;
+  const rows = mine(configured);
   const out = [];
   for (const row of rows) {
     const name = row[rule.name]?.constant;
@@ -290,8 +319,8 @@ function envOf(fact, rule, facts, addressed = new Map()) {
  * workload's whole address is that address: each is what it is, wherever
  * the value came from.
  */
-function valueEnvOf(fact, rule, facts, addressed) {
-  const rows = fact.attrs[rule.list];
+function valueEnvOf(fact, rule, facts, addressed, mine) {
+  const rows = fact.attrs[rule.list] && mine(fact.attrs[rule.list]);
   if (!Array.isArray(rows)) return null;
   const takenFrom = fact.attrs.takenFrom;
   const asWritten = takenFrom !== undefined && takenFrom.references.length === 0 && takenFrom.unresolved.length === 0;
@@ -369,6 +398,13 @@ function declaredSections(facts, kind, { withRun = false, registry = SHIPPED } =
           if (access.some((a) => a.label === label && a.principal === principal)) continue;
           access.push({ label, principal, public: (rule.publicPrincipals ?? []).includes(principal) });
         }
+      }
+      // A setting that turns the check off grants the label to anyone the
+      // network lets through. The plan says so, so it is read as that, as a
+      // public member row would be (Cloud Run's invoker_iam_disabled).
+      const unchecked = entry.report.unchecked;
+      if (unchecked && fact.attrs[unchecked.attr] === true) {
+        access.push({ label: unchecked.label, principal: `anyone, since ${unchecked.attr} is true`, public: true });
       }
       return {
         name: fact.name,
@@ -555,7 +591,8 @@ function compareConnections(sections, cluster, env) {
     for (const port of ports.filter((p) => p.expose === "cluster" || p.expose === "edge")) {
       const exposure = { bundle: b.name, port: port.name, expose: port.expose, section: same[0].section };
       if (expose === "") {
-        findings.push({ kind: "unknown", exposure, reason: setting === "" ? `these inputs do not state its ${attr}` : `its ${attr} is ${setting}, which the mapping does not sort` });
+        const { why } = same[0].bundle.exposure;
+        findings.push({ kind: "unknown", exposure, reason: setting === "" ? `these inputs do not state its ${attr}` : why ? `its ${attr} is ${setting}: ${why}` : `its ${attr} is ${setting}, which the mapping does not sort` });
       } else if (expose === port.expose) {
         findings.push({ kind: "evidenced", exposure, setting: `${attr} ${setting}` });
       } else {

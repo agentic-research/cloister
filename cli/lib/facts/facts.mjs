@@ -43,6 +43,22 @@ const ENTRY = Symbol("the entry that read this fact");
  */
 export const entryOf = (fact) => (fact && typeof fact === "object" ? fact[ENTRY] : undefined);
 
+/**
+ * Where a list row sits in the document: the index of each list item on its
+ * path, joined by dots ("0.1.2" is the third env row of the second container
+ * of the first template). Held like a fact's entry, as no field of the row,
+ * so a row's own fields are only what the mapping read. A row of a list
+ * nested in another is within the outer row whose place begins its own.
+ */
+const AT = Symbol("where this row is in the document");
+export const rowAt = (row) => (row && typeof row === "object" ? row[AT] : undefined);
+export function atRow(row, at) {
+  Object.defineProperty(row, AT, { value: at, enumerable: false });
+  return row;
+}
+/** True when `inner` (a row's place) is within the row at `outer`. */
+export const within = (inner, outer) => typeof inner === "string" && typeof outer === "string" && inner.startsWith(`${outer}.`);
+
 export function makeFact(fields, { entry } = {}) {
   for (const key of Object.keys(fields)) {
     if (AUTHORITY_KEYS.has(key)) {
@@ -82,7 +98,10 @@ function printable(value) {
   if (typeof value === "string") return value.replace(CONTROL, "\ufffd");
   if (Array.isArray(value)) return value.map(printable);
   if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([k, v]) => [printable(k), printable(v)]));
+    const out = Object.fromEntries(Object.entries(value).map(([k, v]) => [printable(k), printable(v)]));
+    // A row's place is not a field, and is carried over as one is not.
+    if (rowAt(value) !== undefined) atRow(out, rowAt(value));
+    return out;
   }
   return value;
 }

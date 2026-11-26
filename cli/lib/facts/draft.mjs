@@ -65,6 +65,17 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
       notes.push(`"${workloadName}" (${same[0].section}) is not drafted: a bundle name must be a DNS label, and it ${problem}`);
       continue;
     }
+    // A bundle is one container (ADR-0074, amendment of 2026-11-26). Several,
+    // with nothing in the inputs to say which serves, are not one bundle, and
+    // two are never merged into one.
+    const { containers, container } = same[0].bundle;
+    if (container === null && containers.length > 1) {
+      notes.push(
+        `"${workloadName}" (${same[0].section}) is not drafted: it runs ${containers.length} containers (${containers.map((c) => `"${c}"`).join(", ")}), ` +
+          "and these inputs do not say which one serves. A bundle is one container",
+      );
+      continue;
+    }
     drafted.set(workloadName, same[0]);
   }
 
@@ -72,6 +83,13 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
   for (const w of drafted.values()) {
     const { run } = w.bundle;
     const bundle = { name: w.name, kind: "external", tier: "cluster" };
+    const beside = w.bundle.containers.filter((c) => c !== w.bundle.container);
+    if (w.bundle.containers.length > 1) {
+      notes.push(
+        `"${w.name}": drafted from its container "${w.bundle.container}", the one that serves. ${beside.map((c) => `"${c}"`).join(", ")} ` +
+          `${beside.length === 1 ? "runs" : "run"} beside it and ${beside.length === 1 ? "is" : "are"} not drafted: a bundle is one container`,
+      );
+    }
     const external = {};
     if (w.bundle.image) external.image = w.bundle.image;
     else notes.push(`"${w.name}": no image was read; add [bundles.external] image by hand`);
@@ -107,11 +125,12 @@ export function draftCluster(imported, { env, name = "drafted", local, localKind
     }
     if (ports.length) bundle.ports = ports;
     if (ports.length && w.bundle.exposure) {
-      const { attr, setting } = w.bundle.exposure;
+      const { attr, setting, why } = w.bundle.exposure;
       if (exposed === "edge") {
         notes.push(`"${w.name}": its ${attr} is ${setting}, so it can be reached from outside and is drafted expose = "edge". If that is not intended, fix the deployment${local ? `. For "${local}" it is drafted expose = "cluster": internal there` : ""}`);
       } else if (exposed === "") {
-        notes.push(`"${w.name}": ${setting === "" ? `these inputs do not state its ${attr}` : `its ${attr} is ${setting}, which the mapping does not sort`}, so whether it can be reached from outside is unknown. It is drafted expose = "cluster": check it`);
+        const said = setting === "" ? `these inputs do not state its ${attr}` : why ? `its ${attr} is ${setting}: ${why}` : `its ${attr} is ${setting}, which the mapping does not sort`;
+        notes.push(`"${w.name}": ${said}, so whether it can be reached from outside is unknown. It is drafted expose = "cluster": check it`);
       }
     }
     bundle.placements = [{ env, kind: w.bundle.placement }];
