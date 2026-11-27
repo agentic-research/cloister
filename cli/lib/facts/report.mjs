@@ -373,7 +373,11 @@ function declaredSections(facts, kind, { withRun = false, registry = SHIPPED } =
     if (!entry.report?.address && !entry.report?.hosts) continue;
     for (const fact of readBy(entry)) {
       const hosts = [];
-      if (entry.report.address) hosts.push(hostOf(fact.attrs[entry.report.address]));
+      // One address attribute, or several; a list of strings is every URL it answers on.
+      for (const attr of [].concat(entry.report.address ?? [])) {
+        const value = fact.attrs[attr];
+        for (const one of Array.isArray(value) ? value : [value]) hosts.push(hostOf(one));
+      }
       // Names a resource answers to that are built, not stored: a cluster
       // DNS name is made of a Service's name and namespace.
       for (const template of entry.report.hosts ?? []) hosts.push(fillHost(template, fact));

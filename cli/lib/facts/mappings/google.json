@@ -4,6 +4,7 @@
     "google_cloud_run_v2_service": {
       "name": "name",
       "read": ["location", "ingress", "uri", "template.service_account", "invoker_iam_disabled"],
+      "strings": ["urls"],
       "ids": ["project", "id"],
       "referenceAttrs": ["template"],
       "lists": [
@@ -14,7 +15,7 @@
       "configLists": [{ "path": "template.containers.env", "fields": ["name", "value", "value_source.secret_key_ref.secret", "value_source.secret_key_ref.version"] }],
       "report": {
         "section": "Cloud Run services", "show": ["location", "ingress"],
-        "address": "uri",
+        "address": ["uri", "urls"],
         "dials": [
           { "list": "env", "value": "value", "label": "name", "prefix": "env" },
           { "list": "containers", "strings": "args", "prefix": "args" },
@@ -52,11 +53,60 @@
       "relations": [{
         "attr": "service", "toType": "google_cloud_run_v2_service", "toAttr": ["id", "name"],
         "scope": ["project", "location"], "stripPrefix": "v1/"
+      }, {
+        "attr": "service", "toType": "google_cloud_run_service", "toAttr": ["id", "name"],
+        "scope": ["project", "location"], "stripPrefix": "v1/"
       }],
       "access": {
         "role": "role", "principal": "member", "condition": "condition",
         "roles": { "roles/run.invoker": "invoker" },
         "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
+    },
+    "google_cloud_run_service": {
+      "name": "name",
+      "read": ["location", "template.spec.service_account_name"],
+      "ids": ["project", "id"],
+      "maps": ["metadata.annotations"],
+      "referenceAttrs": ["template"],
+      "lists": [
+        { "path": "template.spec.containers", "read": ["name", "image"], "strings": ["args", "command"] },
+        { "path": "template.spec.containers.env", "read": ["name", "value"] },
+        { "path": "template.spec.containers.ports", "read": ["name", "container_port"] }
+      ],
+      "configLists": [
+        { "path": "template.spec.containers.env", "fields": ["name", "value", "value_from.secret_key_ref.name", "value_from.secret_key_ref.key"] }
+      ],
+      "report": {
+        "section": "Cloud Run services",
+        "show": ["location"],
+        "dials": [
+          { "list": "env", "value": "value", "label": "name", "prefix": "env" },
+          { "list": "containers", "strings": "args", "prefix": "args" },
+          { "list": "containers", "strings": "command", "prefix": "command" }
+        ],
+        "references": ["template"],
+        "bundle": {
+          "placement": "cloudRun",
+          "runs": "service",
+          "identity": { "attr": "template.spec.service_account_name", "principal": "serviceAccount:{}" },
+          "container": { "list": "containers", "serving": "ports" },
+          "image": { "list": "containers", "value": "image" },
+          "args": { "list": "containers", "strings": "args" },
+          "command": { "list": "containers", "strings": "command" },
+          "env": { "configured": "env", "name": "name", "value": "value", "secret": "value_from.secret_key_ref.name", "secretVersion": "value_from.secret_key_ref.key" },
+          "ports": { "list": "ports", "name": "name", "port": "container_port", "default": { "name": "http1", "port": 8080 } },
+          "wires": { "http1": "art.http", "h2c": "art.http2" },
+          "exposure": {
+            "attr": "metadata.annotations",
+            "key": "run.googleapis.com/ingress",
+            "cluster": ["internal"],
+            "edge": ["all"],
+            "unsorted": {
+              "internal-and-cloud-load-balancing": "it is reached from outside only through an external load balancer, and cloister reads no load balancer"
+            }
+          }
+        }
       }
     },
     "google_cloud_run_service_iam_binding": {
@@ -67,6 +117,9 @@
       "referenceAttrs": ["service"],
       "relations": [{
         "attr": "service", "toType": "google_cloud_run_v2_service", "toAttr": ["id", "name"],
+        "scope": ["project", "location"], "stripPrefix": "v1/"
+      }, {
+        "attr": "service", "toType": "google_cloud_run_service", "toAttr": ["id", "name"],
         "scope": ["project", "location"], "stripPrefix": "v1/"
       }],
       "access": {

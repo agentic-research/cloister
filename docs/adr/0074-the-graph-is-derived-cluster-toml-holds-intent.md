@@ -523,7 +523,8 @@ A microVM is still given no secret (above), whatever the secret holds.
 | | State |
 |---|---|
 | Read a rendered Terraform plan or state | built (ADR-0073) |
-| Cloud Run services and jobs, their containers, env, args and ports | built |
+| Cloud Run services and jobs, their containers, env, args and ports | built; v1 services (`google_cloud_run_service`) too, their ingress from the `run.googleapis.com/ingress` annotation |
+| A Cloud Run service dialled at any URL it answers on (`urls`) | built, in a state document: a plan does not know a service's URLs until apply |
 | A bundle drafted from one container: the only one, or the one that serves where the platform says (amendment of 2026-11-26) | built |
 | Edges from addresses and from configuration references | built for Cloud Run |
 | `ingress` beside a port's `expose` | built (`inspect --terraform --dir`) |
