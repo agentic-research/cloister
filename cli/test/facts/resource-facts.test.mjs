@@ -1042,7 +1042,9 @@ test("validateMapping holds dials, address and references to what the entry read
     return mapping;
   };
   validateMapping(withReport({}), GOOGLE_SPEC);
-  assert.throws(() => validateMapping(withReport({ address: "etag" }), GOOGLE_SPEC), /address "etag" is not in its "read" list/);
+  assert.throws(() => validateMapping(withReport({ address: "etag" }), GOOGLE_SPEC), /address "etag" is not in its "read" or "strings" list/);
+  assert.throws(() => validateMapping(withReport({ address: [] }), GOOGLE_SPEC), /address "" is not in its "read" or "strings" list/);
+  assert.throws(() => validateMapping(withReport({ address: ["uri", "etag"] }), GOOGLE_SPEC), /address "uri, etag" is not in its "read" or "strings" list/);
   assert.throws(() => validateMapping(withReport({ dials: [{ list: "volumes", value: "name", prefix: "x" }] }), GOOGLE_SPEC), /needs a "prefix" and a "list" the entry reads/);
   assert.throws(() => validateMapping(withReport({ dials: [{ list: "env", value: "secret", prefix: "env" }] }), GOOGLE_SPEC), /value "secret" is not read from list "env"/);
   assert.throws(() => validateMapping(withReport({ dials: [{ list: "containers", strings: "image", prefix: "x" }] }), GOOGLE_SPEC), /strings "image" is not read from list "containers"/);

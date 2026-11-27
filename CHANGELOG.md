@@ -8,6 +8,18 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — `cloister inspect` reads v1 Cloud Run services, and every URL a v2 one answers on
+
+- `google_cloud_run_service` (the v1 resource, shaped like a Knative Service)
+  is read as a Cloud Run workload. Its containers, env, ports and service
+  account are read as the v2 service's are, and so is its ingress, from the
+  `run.googleapis.com/ingress` annotation (`internal` is cluster, `all` is
+  edge, `internal-and-cloud-load-balancing` is unknown and says why). v1
+  invoker members and bindings now reach v1 services as well as v2 ones.
+- A v2 service's `urls` (every URL it answers on, the deterministic
+  `<name>-<project number>.<region>.run.app` among them) are addresses it is
+  dialled at, beside `uri`. A report `address` may name several attributes.
+
 ### 2026-11 — a grant is read with its condition, and a binding grants each member (ADR-0074 amendment)
 
 - An IAM member row made under a condition was read as an unconditional grant,

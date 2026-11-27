@@ -290,8 +290,12 @@ function checkReport(type, entry, types = {}, attributes = {}) {
       if (!read.includes(attr)) throw new Error(`mapping: ${type}.report shows "${attr}", which is not in its "read" list`);
     }
     // `address`: the attribute holding where this resource is reached.
-    if (report.address !== undefined && !read.includes(report.address)) {
-      throw new Error(`mapping: ${type}.report address "${report.address}" is not in its "read" list`);
+    // `address`: what the resource is dialled at. One attribute it reads, or
+    // several (a URL, and every URL it answers on), each in its "read" list or
+    // a list of strings in its "strings" list.
+    const addresses = report.address === undefined ? [] : Array.isArray(report.address) ? report.address : [report.address];
+    if (report.address !== undefined && (addresses.length === 0 || addresses.some((a) => !read.includes(a) && !(entry.strings ?? []).includes(a)))) {
+      throw new Error(`mapping: ${type}.report address "${addresses.join(", ")}" is not in its "read" or "strings" list`);
     }
     // `dials`: where this resource's own strings may name another resource's
     // address. Each names one of the entry's lists and a field that list reads.

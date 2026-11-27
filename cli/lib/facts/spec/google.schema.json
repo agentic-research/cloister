@@ -1,6 +1,250 @@
 {
   "provider": "hashicorp/google",
   "resources": {
+    "google_cloud_run_service": {
+      "attributes": {
+        "autogenerate_revision_name": {
+          "sensitive": false,
+          "type": "bool"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "metadata": {
+          "attributes": {
+            "annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "effective_annotations": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "effective_labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "generation": {
+              "sensitive": false,
+              "type": "number"
+            },
+            "labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "namespace": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "resource_version": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "self_link": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "terraform_labels": {
+              "sensitive": false,
+              "type": [
+                "map",
+                "string"
+              ]
+            },
+            "uid": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "status": {
+          "sensitive": false,
+          "type": [
+            "list",
+            [
+              "object",
+              {
+                "conditions": [
+                  "list",
+                  [
+                    "object",
+                    {
+                      "message": "string",
+                      "reason": "string",
+                      "status": "string",
+                      "type": "string"
+                    }
+                  ]
+                ],
+                "latest_created_revision_name": "string",
+                "latest_ready_revision_name": "string",
+                "observed_generation": "number",
+                "traffic": [
+                  "list",
+                  [
+                    "object",
+                    {
+                      "latest_revision": "bool",
+                      "percent": "number",
+                      "revision_name": "string",
+                      "tag": "string",
+                      "url": "string"
+                    }
+                  ]
+                ],
+                "url": "string"
+              }
+            ]
+          ]
+        },
+        "template": {
+          "attributes": {
+            "spec": {
+              "attributes": {
+                "container_concurrency": {
+                  "sensitive": false,
+                  "type": "number"
+                },
+                "containers": {
+                  "attributes": {
+                    "args": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "command": {
+                      "sensitive": false,
+                      "type": [
+                        "list",
+                        "string"
+                      ]
+                    },
+                    "env": {
+                      "attributes": {
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "value": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "value_from": {
+                          "attributes": {
+                            "secret_key_ref": {
+                              "attributes": {
+                                "key": {
+                                  "sensitive": false,
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "sensitive": false,
+                                  "type": "string"
+                                }
+                              },
+                              "nesting_mode": "list",
+                              "sensitive": false
+                            }
+                          },
+                          "nesting_mode": "list",
+                          "sensitive": false
+                        }
+                      },
+                      "nesting_mode": "set",
+                      "sensitive": false
+                    },
+                    "image": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "name": {
+                      "sensitive": false,
+                      "type": "string"
+                    },
+                    "ports": {
+                      "attributes": {
+                        "container_port": {
+                          "sensitive": false,
+                          "type": "number"
+                        },
+                        "name": {
+                          "sensitive": false,
+                          "type": "string"
+                        },
+                        "protocol": {
+                          "sensitive": false,
+                          "type": "string"
+                        }
+                      },
+                      "nesting_mode": "list",
+                      "sensitive": false
+                    },
+                    "working_dir": {
+                      "sensitive": false,
+                      "type": "string"
+                    }
+                  },
+                  "nesting_mode": "list",
+                  "sensitive": false
+                },
+                "node_selector": {
+                  "sensitive": false,
+                  "type": [
+                    "map",
+                    "string"
+                  ]
+                },
+                "service_account_name": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "serving_state": {
+                  "sensitive": false,
+                  "type": "string"
+                },
+                "timeout_seconds": {
+                  "sensitive": false,
+                  "type": "number"
+                }
+              },
+              "nesting_mode": "list",
+              "sensitive": false
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        }
+      }
+    },
     "google_cloud_run_service_iam_binding": {
       "attributes": {
         "condition": {
