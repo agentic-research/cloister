@@ -98,6 +98,7 @@ impl AwaitRun for RecordingBackend {
                 Some(error) => BackendRunStatus::Failed(error.clone()),
             },
             output: self.guest_output.clone(),
+            connections: None,
         })
     }
 }
@@ -117,6 +118,7 @@ impl LeylineBackendTrait for RecordingBackend {
         &self,
         request: &ExecutionRequest,
         _workspaces: leyline_runtime::ServedWorkspaces,
+        _connections: leyline_runtime::RunConnections,
     ) -> Result<BackendRun, ExecutionError> {
         self.enforced.check(&request.limits)?;
         self.starts.fetch_add(1, Ordering::SeqCst);
@@ -287,7 +289,11 @@ fn the_recording_tier_refuses_a_ceiling_it_cannot_enforce() {
 
     let native = RecordingBackend::tier(BackendClass::Native, EnforcedCeilings::wall_clock_only());
     let err = native
-        .start(&microvm_request, leyline_runtime::ServedWorkspaces::none())
+        .start(
+            &microvm_request,
+            leyline_runtime::ServedWorkspaces::none(),
+            leyline_runtime::RunConnections::none(),
+        )
         .expect_err("native without a cgroup root refuses memory");
     assert!(format!("{err}").contains("memory.limit"), "{err}");
     assert_eq!(native.starts.load(Ordering::SeqCst), 0);
@@ -427,6 +433,7 @@ fn llo_failed(detail: &str, output: GuestOutput) -> RunOutcome {
             &output,
         )),
         output: Some(output),
+        connections: None,
     }
 }
 
@@ -467,6 +474,7 @@ fn a_successful_run_prints_nothing() {
     let outcome = RunOutcome {
         status: BackendRunStatus::Succeeded,
         output: Some(guest("healthy service chatter\n", "")),
+        connections: None,
     };
     let (printed, result) = reported(&outcome);
     assert_eq!(printed, "");
@@ -486,6 +494,7 @@ fn a_ceiling_stop_prints_no_guest_output_and_keeps_its_own_detail() {
             &output,
         )),
         output: Some(output),
+        connections: None,
     };
     let (printed, result) = reported(&outcome);
     assert_eq!(printed, "", "a ceiling is not a workload failure");
@@ -505,6 +514,7 @@ fn a_failed_run_with_no_output_prints_nothing_and_keeps_the_whole_detail() {
     let outcome = RunOutcome {
         status: BackendRunStatus::Failed(ExecutionError::backend("worker exited")),
         output: None,
+        connections: None,
     };
     let (printed, result) = reported(&outcome);
     assert_eq!(printed, "");

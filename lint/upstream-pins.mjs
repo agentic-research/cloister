@@ -7,7 +7,8 @@
 // used to carry its own version string:
 //
 //   1. [inputs.llo] in cluster.toml       server.json @ git SHA
-//   2. Cargo git deps (rs/ + tools/)      every crate @ rev + version
+//   2. Cargo git deps (rs/ + tools/)      every crate @ rev + version, and
+//      each workspace's Cargo.lock        the commit cargo resolved for them
 //   3. schema-bridge.lock.json            generator binaries @ release tag
 //   4. [inputs.llo.oci] in the lockfile   image, DERIVED from (1) — not checked here
 //   5. test/wire/fixtures/llo-net-vectors.json  leyline-net/v1 vectors @ release tag
@@ -132,6 +133,110 @@ export function collectLloPins(roots = CARGO_ROOTS) {
   return pins;
 }
 
+/** Every Cargo.lock under `dir`, excluding target dirs. */
+function lockfiles(dir, out = []) {
+  for (const e of readdirSync(dir)) {
+    if (e === "target" || e === "node_modules" || e === ".git") continue;
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) lockfiles(p, out);
+    else if (e === "Cargo.lock") out.push(p);
+  }
+  return out;
+}
+
+const parseManifest = (file) => TOML.parse(readFileSync(file, "utf8"));
+
+/**
+ * The directory whose Cargo.lock cargo uses for `manifest`, by cargo's rule:
+ * the nearest directory at or above the manifest's, up to `root`, whose
+ * Cargo.toml has a [workspace] table that does not exclude it, and otherwise
+ * the manifest's own. A manifest that names its workspace itself
+ * (`package.workspace`) is refused rather than followed.
+ */
+export function workspaceDirOf(manifest, root = ROOT) {
+  const own = dirname(manifest);
+  if (parseManifest(manifest).package?.workspace !== undefined) {
+    throw new Error(`${relative(ROOT, manifest)} sets package.workspace, which lint:upstream-pins does not follow`);
+  }
+  for (let dir = own; ; dir = dirname(dir)) {
+    const candidate = join(dir, "Cargo.toml");
+    if (existsSync(candidate)) {
+      const workspace = parseManifest(candidate).workspace;
+      const member = relative(dir, own);
+      const excluded = (workspace?.exclude ?? []).some((e) => member === e || member.startsWith(`${e}/`));
+      if (workspace && !excluded) return dir;
+    }
+    if (dir === root || dirname(dir) === dir) return own;
+  }
+}
+
+/**
+ * The workspaces whose manifests pin ley-line-open: each one's lockfile, and
+ * the crates its manifests pin. `gen/llo-bump.mjs` re-resolves exactly these
+ * locks, and this rail checks each one.
+ *
+ * @returns {{dir: string, lock: string, manifests: string[], crates: string[]}[]}
+ */
+export function lloWorkspaces(pins = collectLloPins(), root = ROOT) {
+  const byDir = new Map();
+  for (const pin of pins) {
+    const dir = relative(ROOT, workspaceDirOf(resolve(ROOT, pin.file), root));
+    const ws = byDir.get(dir) ?? { dir, lock: join(dir, "Cargo.lock"), manifests: [], crates: [] };
+    if (!ws.manifests.includes(pin.file)) ws.manifests.push(pin.file);
+    if (!ws.crates.includes(pin.name)) ws.crates.push(pin.name);
+    byDir.set(dir, ws);
+  }
+  return [...byDir.values()].sort((a, b) => a.dir.localeCompare(b.dir));
+}
+
+/**
+ * Every ley-line-open package each Cargo.lock under `roots` records. A lock
+ * names the revision its manifest asked for and the commit cargo checked out:
+ * `source = "git+<repo>?rev=<rev>#<commit>"`.
+ *
+ * @returns {{file: string, name: string, rev: string, commit: string}[]}
+ */
+export function collectLockedLlo(roots = CARGO_ROOTS) {
+  const locked = [];
+  for (const file of [roots].flat().filter((d) => existsSync(d)).flatMap((d) => lockfiles(d))) {
+    for (const pkg of parseManifest(file).package ?? []) {
+      if (typeof pkg.source !== "string" || !pkg.source.startsWith("git+")) continue;
+      const url = new URL(pkg.source.slice("git+".length));
+      if (`${url.origin}${url.pathname}` !== UPSTREAM) continue;
+      locked.push({ file: relative(ROOT, file), name: pkg.name, rev: url.searchParams.get("rev") ?? "", commit: url.hash.slice(1) });
+    }
+  }
+  return locked;
+}
+
+/**
+ * What is wrong with the lockfiles, given the one rev every manifest pins.
+ *
+ * A lock is cargo's output, but it is committed, so it can lag its manifest.
+ * One that does still builds, because cargo re-resolves it, so it passed every
+ * gate while `cargo build --locked` refused it: the 0.32.0 bump moved
+ * tools/harness-sandbox/Cargo.toml and left its lock at 0.31.0.
+ */
+export function lockProblems(pins, rev, { root = ROOT, roots = CARGO_ROOTS } = {}) {
+  const problems = [];
+  const workspaces = lloWorkspaces(pins, root);
+  const locked = collectLockedLlo(roots);
+  for (const ws of workspaces) {
+    if (!existsSync(resolve(ROOT, ws.lock))) {
+      problems.push(`${ws.lock} is missing, and ${ws.manifests.join(", ")} pin ley-line-open: cargo records what it resolved for them there`);
+      continue;
+    }
+    const names = new Set(locked.filter((l) => l.file === ws.lock).map((l) => l.name));
+    for (const crate of ws.crates.filter((c) => !names.has(c))) {
+      problems.push(`${ws.lock} locks no ${crate} from ley-line-open, and ${ws.manifests.join(", ")} pin it`);
+    }
+  }
+  for (const l of locked.filter((l) => l.rev !== rev || l.commit !== rev)) {
+    problems.push(`${l.file}: ${l.name} is locked at ${l.commit.slice(0, 8) || "no commit"} (rev ${l.rev.slice(0, 8) || "none"}), and the manifests pin ${rev.slice(0, 8)}`);
+  }
+  return problems;
+}
+
 /**
  * THE canonical list of channels that hand-state an ley-line-open version.
  *
@@ -146,13 +251,15 @@ export function collectLloPins(roots = CARGO_ROOTS) {
  * the rail reads them to compare, the bump reads them to write. Neither owns
  * the other's format knowledge.
  *
- * @returns {{kind: "cargo"|"input"|"generator"|"vectors", file: string, detail?: string}[]}
+ * @returns {{kind: "cargo"|"cargo-lock"|"input"|"generator"|"vectors"|"spec-fixture", file: string, detail?: string}[]}
  */
 export function upstreamChannels() {
   const out = [];
-  for (const pin of collectLloPins()) {
+  const pins = collectLloPins();
+  for (const pin of pins) {
     out.push({ kind: "cargo", file: pin.file, detail: pin.name });
   }
+  for (const ws of lloWorkspaces(pins)) out.push({ kind: "cargo-lock", file: ws.lock, detail: ws.crates.join(", ") });
   for (const c of readInputVersion()) out.push({ kind: "input", file: "cluster.toml", detail: c.name });
   for (const c of readGeneratorVersion()) out.push({ kind: "generator", file: "schema-bridge.lock.json", detail: c.name });
   for (const c of readVectorsVersion()) out.push({ kind: "vectors", file: VECTORS_REL, detail: c.name });
@@ -188,6 +295,16 @@ function main() {
     fail(
       `every ley-line-open git dependency must pin BOTH rev and version:\n` +
       missing.map((p) => `  ${p.file}: ${p.name} rev=${p.rev || "<none>"} version=${p.version || "<none>"}`).join("\n"),
+    );
+  }
+
+  // The full commit, so the commit a lockfile records is compared to it
+  // exactly, and no tag or branch can move under it. `task llo:bump` writes it.
+  const short = pins.filter((p) => !/^[0-9a-f]{40}$/.test(p.rev));
+  if (short.length) {
+    fail(
+      `every ley-line-open git dependency must pin a full 40-hex commit as its rev:\n` +
+      short.map((p) => `  ${p.file}: ${p.name} rev=${p.rev}`).join("\n"),
     );
   }
 
@@ -256,10 +373,29 @@ function main() {
     );
   }
 
+  // ── Lockfiles: what cargo resolved for the manifests above ──────────────
+  let problems;
+  try {
+    problems = lockProblems(pins, revs[0]);
+  } catch (e) {
+    fail(e.message);
+  }
+  if (problems.length) {
+    fail(
+      `a Cargo lockfile disagrees with the manifests. Cargo re-resolves a lock ` +
+      `its manifest has moved past, so this builds, and \`cargo build --locked\` ` +
+      `refuses it:\n` +
+      problems.map((p) => `  ${p}`).join("\n") +
+      `\nRe-resolve each lock (\`task llo:bump\` does, with \`cargo metadata\`).`,
+    );
+  }
+  const locks = lloWorkspaces(pins);
+
   process.stdout.write(
     `lint:upstream-pins: OK — ley-line-open at ${distinct[0]} across ` +
     `${channels.length} channels; ${pins.length} cargo pin(s) in ` +
-    `${new Set(pins.map((p) => p.file)).size} manifest(s) @ ${revs[0].slice(0, 8)}\n`,
+    `${new Set(pins.map((p) => p.file)).size} manifest(s) @ ${revs[0].slice(0, 8)}, ` +
+    `locked there in ${locks.map((w) => w.lock).join(" and ")}\n`,
   );
 }
 

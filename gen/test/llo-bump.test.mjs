@@ -29,6 +29,16 @@ test("the bump imports the rail's channel list rather than restating it", () => 
     `llo-bump hardcodes channel files the rail already enumerates: ${restated.join(", ")}`);
 });
 
+test("the bump re-resolves the lockfiles the rail checks, by the rail's list", () => {
+  // The 0.32.0 bump moved tools/harness-sandbox/Cargo.toml and left its lock
+  // at 0.31.0: the bump wrote manifests only, and cargo re-resolving the stale
+  // lock kept every gate green.
+  const src = readFileSync(resolve(ROOT, "gen/llo-bump.mjs"), "utf8");
+  assert.match(src, /import \{[^}]*\blloWorkspaces\b[^}]*\} from "\.\.\/lint\/upstream-pins\.mjs"/);
+  assert.match(src, /writeLocks\(lloWorkspaces\(pins\), dry\)/, "llo-bump must re-resolve each workspace the rail lists");
+  assert.ok(!src.includes('"tools/harness-sandbox/Cargo.lock"') && !src.includes('"rs/Cargo.lock"'), "llo-bump must not restate the rail's lockfiles");
+});
+
 // The tag check needs a ley-line-open checkout to reach — without one the
 // script refuses earlier, for a different and equally correct reason ("no
 // ley-line-open checkout … Set LLO_ROOT"), so the property below is not
