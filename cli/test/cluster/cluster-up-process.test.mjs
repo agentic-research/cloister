@@ -19,6 +19,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify as stringifyToml } from "smol-toml";
 
+import { freePorts } from "./free-ports.mjs";
+
 const HERE = import.meta.dirname;
 const DRIVER = join(HERE, "fixtures/cluster-up/driver.mjs");
 const DEMO_TOML = readFileSync(join(HERE, "../../../tools/dolt-grpc-demo/microvm/cluster.toml"), "utf8");
@@ -212,14 +214,6 @@ test("a stderr line written in several small pieces is relayed whole, never spli
 
 // ── expose = "edge": a real relay in a real `up` (cloister-991e65) ─────────
 
-async function freePort() {
-  const s = createServer();
-  await new Promise((r) => s.listen({ host: "127.0.0.1", port: 0 }, r));
-  const { port } = s.address();
-  await new Promise((r) => s.close(r));
-  return port;
-}
-
 /** The demo, publishing dolt.mysql and orders.grpc on the given host ports. */
 function edgeToml(mysql, grpc) {
   assert.ok(DEMO_TOML.includes("port = 3306") && DEMO_TOML.includes("port = 50051"));
@@ -254,7 +248,7 @@ async function portFree(port, ms = 5_000) {
 }
 
 test("edge: host TCP reaches the bundle's bind socket, and SIGINT closes the relay and frees the port", async () => {
-  const [mysql, grpc] = [await freePort(), await freePort()];
+  const [mysql, grpc] = await freePorts(2);
   const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
   try {
     await up.waitFor(/all bundles bound/);
@@ -275,7 +269,7 @@ test("edge: host TCP reaches the bundle's bind socket, and SIGINT closes the rel
 });
 
 test("edge: SIGINT closes a held-open relayed connection and up exits 0 within 5 seconds", async () => {
-  const [mysql, grpc] = [await freePort(), await freePort()];
+  const [mysql, grpc] = await freePorts(2);
   const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
   let client;
   try {
@@ -306,7 +300,7 @@ test("edge: SIGINT closes a held-open relayed connection and up exits 0 within 5
 });
 
 test("edge: kill -9 of up leaves no listener (the OS closes its sockets) and no host runtime", async () => {
-  const [mysql, grpc] = [await freePort(), await freePort()];
+  const [mysql, grpc] = await freePorts(2);
   const up = startUp({ FAKE_DOLT: "echo", FAKE_ORDERS: "echo" }, edgeToml(mysql, grpc));
   try {
     await up.waitFor(/all bundles bound/);
@@ -322,7 +316,7 @@ test("edge: kill -9 of up leaves no listener (the OS closes its sockets) and no 
 });
 
 test("edge: a busy host port is refused by name before any bundle starts", async () => {
-  const [mysql, grpc] = [await freePort(), await freePort()];
+  const [mysql, grpc] = await freePorts(2);
   const holder = createServer();
   await new Promise((r) => holder.listen({ host: "127.0.0.1", port: grpc }, r));
   const up = startUp({}, edgeToml(mysql, grpc));

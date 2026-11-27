@@ -12,15 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EDGE_HOST, describeEdge, edgePorts, isEdge, openEdgeListeners } from "../../lib/cluster/edge-relay.mjs";
-
-/** A port nothing listens on right now (bind 0, read it, release it). */
-async function freePort() {
-  const s = createServer();
-  await new Promise((r) => s.listen({ host: EDGE_HOST, port: 0 }, r));
-  const { port } = s.address();
-  await new Promise((r) => s.close(r));
-  return port;
-}
+import { freePort } from "./free-ports.mjs";
 
 const cluster = (ports) => ({ bundles: [{ name: "dolt", ports }, { name: "orders", ports: [] }] });
 const port = (name, number, expose) => ({ name, port: number, appProtocol: "art.mysql", expose });
@@ -48,11 +40,12 @@ test("two bundles publishing one host port are refused by name", () => {
 });
 
 test("a busy host port is refused by name, and nothing stays bound", async (t) => {
-  const busy = await freePort();
-  const free = await freePort();
   const holder = createServer();
-  await new Promise((r) => holder.listen({ host: EDGE_HOST, port: busy }, r));
+  await new Promise((r) => holder.listen({ host: EDGE_HOST, port: 0 }, r));
   t.after(() => holder.close());
+  const busy = holder.address().port;
+  // Taken while the holder holds `busy`, so the two differ.
+  const free = await freePort(EDGE_HOST);
   const edges = [
     { bundle: "orders", name: "grpc", port: free, appProtocol: "art.grpc", socketPath: "/nowhere" },
     { bundle: "dolt", name: "mysql", port: busy, appProtocol: "art.mysql", socketPath: "/nowhere" },
@@ -86,7 +79,7 @@ for (const [label, listenArgs] of [
     }
     t.after(() => holder.close());
     const held = holder.address().port;
-    const free = await freePort();
+    const free = await freePort(EDGE_HOST);
     const edges = [
       { bundle: "orders", name: "grpc", port: free, appProtocol: "art.grpc", socketPath: "/nowhere" },
       { bundle: "dolt", name: "mysql", port: held, appProtocol: "art.mysql", socketPath: "/nowhere" },
@@ -110,7 +103,7 @@ test("listeners bind loopback only, relay bytes after activation, and free the p
   const echo = createServer((c) => c.pipe(c));
   await new Promise((r) => echo.listen(socketPath, r));
   t.after(() => echo.close());
-  const p = await freePort();
+  const p = await freePort(EDGE_HOST);
   const [l] = await openEdgeListeners([{ bundle: "dolt", name: "mysql", port: p, appProtocol: "art.mysql", socketPath }], { errLog: () => {} });
   try {
     assert.equal(l.address().address, "127.0.0.1", "never 0.0.0.0");
@@ -128,7 +121,7 @@ test("listeners bind loopback only, relay bytes after activation, and free the p
 });
 
 test("a relay whose bind socket is gone closes the client, and says why", async () => {
-  const p = await freePort();
+  const p = await freePort(EDGE_HOST);
   const errors = [];
   const [l] = await openEdgeListeners([{ bundle: "dolt", name: "mysql", port: p, appProtocol: "art.mysql", socketPath: "/nonexistent/dolt.mysql.sock" }], { errLog: (m) => errors.push(m) });
   try {
