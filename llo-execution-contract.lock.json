@@ -22,8 +22,8 @@
     "same unverified-input shape the schema-bridge lock exists to prevent."
   ],
   "source": "agentic-research/ley-line-open",
-  "sourceCommit": "eb07092a3650552e64cd73261704d5af352a4f88",
-  "sourceTag": "v0.31.0",
+  "sourceCommit": "c5a14f6039c1071912d8d21a9f311b90cd004761",
+  "sourceTag": "v0.32.0",
   "artifact": "src/generated/llo-execution-tools.json",
   "sha256": "f94112a7c0a35a69c13d944ee96dd174807436fb23b5c68474856b7bb4cf739d"
 }

@@ -24,14 +24,14 @@ thiserror = "2"
 # ADR-0049 / cloister-17e502 — the first-party execution API that replaces the
 # krunvm shell-out. Same rev AND version as every other LLO pin: cargo resolves
 # on the pair, and `lint:upstream-pins` enforces ONE of each across all of them.
-leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "eb07092a3650552e64cd73261704d5af352a4f88", version = "0.31.0", package = "leyline-runtime", optional = true }
+leyline-runtime = { git = "https://github.com/agentic-research/ley-line-open", rev = "c5a14f6039c1071912d8d21a9f311b90cd004761", version = "0.32.0", package = "leyline-runtime", optional = true }
 # ADR-0079 §2: the RunSpec and RunGrant are built with LLO's generated
 # execution/v1 builders, and the grant evidence is LLO's in-toto Statement.
 # Both crates are already in the graph through leyline-runtime; naming them
 # here pins them to the same rev and version. capnp and blake3 match LLO's
 # own workspace pins.
-leyline-public-schema = { git = "https://github.com/agentic-research/ley-line-open", rev = "eb07092a3650552e64cd73261704d5af352a4f88", version = "0.31.0", package = "leyline-public-schema", optional = true }
-leyline-envelope = { git = "https://github.com/agentic-research/ley-line-open", rev = "eb07092a3650552e64cd73261704d5af352a4f88", version = "0.31.0", package = "leyline-envelope", optional = true }
+leyline-public-schema = { git = "https://github.com/agentic-research/ley-line-open", rev = "c5a14f6039c1071912d8d21a9f311b90cd004761", version = "0.32.0", package = "leyline-public-schema", optional = true }
+leyline-envelope = { git = "https://github.com/agentic-research/ley-line-open", rev = "c5a14f6039c1071912d8d21a9f311b90cd004761", version = "0.32.0", package = "leyline-envelope", optional = true }
 capnp = { version = "=0.25.0", optional = true }
 blake3 = { version = "1.8.5", optional = true }
 

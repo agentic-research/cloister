@@ -59,6 +59,7 @@ impl AwaitRun for GatedBackend {
         Ok(RunOutcome {
             status: BackendRunStatus::Succeeded,
             output: None,
+            connections: None,
         })
     }
 }
@@ -78,6 +79,7 @@ impl LeylineBackendTrait for GatedBackend {
         &self,
         _request: &ExecutionRequest,
         _workspaces: leyline_runtime::ServedWorkspaces,
+        _connections: leyline_runtime::RunConnections,
     ) -> Result<BackendRun, ExecutionError> {
         if let Some(tx) = self.entered.lock().unwrap().take() {
             let _ = tx.send(());

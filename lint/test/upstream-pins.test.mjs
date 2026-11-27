@@ -17,10 +17,10 @@ import { spawnSync, execFileSync } from "node:child_process";
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseToml } from "smol-toml";
-import { collectLloPins } from "../upstream-pins.mjs";
+import { collectLloPins, lloWorkspaces, lockProblems } from "../upstream-pins.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -185,4 +185,89 @@ test("an inline-table pin and a [dependencies.x] table pin are both seen", (t) =
 
   const names = collectLloPins(dir).map((p) => p.name).sort();
   assert.deepEqual(names, ["leyline-core", "leyline-fs", "leyline-sign"]);
+});
+
+// ── Lockfiles ─────────────────────────────────────────────────────────────
+//
+// A Cargo.lock is cargo's output, but it is committed, so it can lag its
+// manifest, and one that does still builds: cargo re-resolves it. The 0.32.0
+// bump moved tools/harness-sandbox/Cargo.toml and left its lock at 0.31.0, and
+// every gate passed.
+
+const U = "https://github.com/agentic-research/ley-line-open";
+const A = "a".repeat(40);
+const B = "b".repeat(40);
+const dep = (name, rev) => `${name} = { git = "${U}", rev = "${rev}", version = "0.1.0" }\n`;
+const crate = (name, deps) => `[package]\nname = "${name}"\nversion = "0.1.0"\n\n[dependencies]\n${deps}`;
+const locked = (...pkgs) => `version = 4\n\n${pkgs.map(([name, rev]) => `[[package]]\nname = "${name}"\nversion = "0.1.0"\nsource = "git+${U}?rev=${rev}#${rev}"\n`).join("\n")}`;
+
+/** A temporary tree of `files` (path → text), removed after the test. */
+function tree(t, files) {
+  const dir = mkdtempSync(join(tmpdir(), "upstream-pins-locks-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const [rel, text] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, rel)), { recursive: true });
+    writeFileSync(join(dir, rel), text);
+  }
+  return dir;
+}
+
+test("every ley-line-open pin is a full commit, so a lock's commit is compared to it exactly", () => {
+  for (const p of collectLloPins()) assert.match(p.rev, /^[0-9a-f]{40}$/, `${p.file}: ${p.name}`);
+});
+
+test("the shipped lockfiles lock ley-line-open at the pinned commit, every pinned crate included", () => {
+  const pins = collectLloPins();
+  const [rev] = new Set(pins.map((p) => p.rev));
+  // The locks that record ley-line-open, read from git rather than from the
+  // rail's walk, so a lock the walk does not reach fails here.
+  const recording = execFileSync("git", ["-C", ROOT, "ls-files", "*Cargo.lock"], { encoding: "utf8" })
+    .split("\n")
+    .filter(Boolean)
+    .filter((f) => (parseToml(readFileSync(resolve(ROOT, f), "utf8")).package ?? []).some((p) => String(p.source ?? "").startsWith(`git+${U}?`)));
+  assert.deepEqual(lloWorkspaces(pins).map((w) => w.lock), recording.sort());
+  assert.ok(recording.includes("rs/Cargo.lock") && recording.includes("tools/harness-sandbox/Cargo.lock"), recording.join(", "));
+  assert.deepEqual(lockProblems(pins, rev), []);
+});
+
+test("a lock left at another commit is refused, naming the lock and the crate", (t) => {
+  const dir = tree(t, {
+    "app/Cargo.toml": crate("app", dep("leyline-sign", A)),
+    "app/Cargo.lock": locked(["leyline-sign", B]),
+  });
+  const pins = collectLloPins(dir);
+  const problems = lockProblems(pins, A, { root: dir, roots: [dir] });
+  assert.equal(problems.length, 1, problems.join("\n"));
+  assert.match(problems[0], /app\/Cargo\.lock: leyline-sign is locked at bbbbbbbb \(rev bbbbbbbb\), and the manifests pin aaaaaaaa$/);
+  // Re-resolved, it passes.
+  writeFileSync(join(dir, "app/Cargo.lock"), locked(["leyline-sign", A]));
+  assert.deepEqual(lockProblems(pins, A, { root: dir, roots: [dir] }), []);
+});
+
+test("a pinned crate its lock does not name, and a missing lock, are refused", (t) => {
+  const dir = tree(t, {
+    "one/Cargo.toml": crate("one", dep("leyline-sign", A) + dep("leyline-core", A)),
+    "one/Cargo.lock": locked(["leyline-sign", A]),
+    "two/Cargo.toml": crate("two", dep("leyline-sign", A)),
+  });
+  const problems = lockProblems(collectLloPins(dir), A, { root: dir, roots: [dir] });
+  assert.equal(problems.length, 2, problems.join("\n"));
+  assert.match(problems.find((p) => p.includes("one/")), /one\/Cargo\.lock locks no leyline-core from ley-line-open, and \S*one\/Cargo\.toml pin it$/);
+  assert.match(problems.find((p) => p.includes("two/")), /two\/Cargo\.lock is missing, and \S*two\/Cargo\.toml pin ley-line-open/);
+});
+
+test("a crate's lock is its workspace's, unless the workspace excludes it", (t) => {
+  const dir = tree(t, {
+    "Cargo.toml": `[workspace]\nmembers = ["crates/a"]\nexclude = ["tools"]\n`,
+    "crates/a/Cargo.toml": crate("a", dep("leyline-sign", A)),
+    "tools/b/Cargo.toml": crate("b", dep("leyline-sign", A)),
+  });
+  const workspaces = lloWorkspaces(collectLloPins(dir), dir);
+  assert.deepEqual(workspaces.map((w) => relative(dir, resolve(ROOT, w.lock))), ["Cargo.lock", "tools/b/Cargo.lock"]);
+  assert.deepEqual(workspaces.map((w) => w.crates), [["leyline-sign"], ["leyline-sign"]]);
+});
+
+test("a manifest that names its own workspace is refused rather than followed", (t) => {
+  const dir = tree(t, { "c/Cargo.toml": `[package]\nname = "c"\nversion = "0.1.0"\nworkspace = "../elsewhere"\n\n[dependencies]\n${dep("leyline-sign", A)}` });
+  assert.throws(() => lloWorkspaces(collectLloPins(dir), dir), /c\/Cargo\.toml sets package\.workspace, which lint:upstream-pins does not follow/);
 });

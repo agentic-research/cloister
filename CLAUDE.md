@@ -67,11 +67,11 @@ used to be vendored at `src/vendor/notme-dpop.ts`; it is now a real dependency
 LLO crates are pinned by **git rev AND version, and both must match** — cargo
 resolves on the pair, so bumping the rev alone fails with a bare "location
 searched" error that does not mention the version. Every LLO crate cloister
-pins moves together. `lint:upstream-pins` reads every Cargo manifest, so it
-holds them all; don't list them here, because a hand list drifts. They once
-drifted to five different revs with `leyline-core` resolving three times in
-one lockfile, which is what `cargo update -p leyline-core` refusing as
-*ambiguous* looks like.
+pins moves together. `lint:upstream-pins` reads every Cargo manifest and the
+lockfile each one resolves into, so it holds them all; don't list them here,
+because a hand list drifts. They once drifted to five different revs with
+`leyline-core` resolving three times in one lockfile, which is what
+`cargo update -p leyline-core` refusing as *ambiguous* looks like.
 
 The release tag is **not** the delivery path for the schema-bridge generator —
 `task cluster:zod` builds it from the pinned git rev, so a stale pin silently
@@ -130,7 +130,7 @@ tree satisfies it*, so the rail cannot pass vacuously.
 | `lint:log-shape` | operational logs on the trust surface are structured (`logEvent`), never ad-hoc strings | `cloister-bd7e51` |
 | `lint:dev-escape` | no committed `[inputs.*] from =` dev-escape (it wins over `ref`) | ADR-0026 |
 | `config:check` | no `.env.local` value silently shadowed by `.dev.vars` under `wrangler dev` | `cloister-21f273` |
-| `lint:upstream-pins` | ONE ley-line-open version across every hand-stated channel (input ref, Cargo deps, generator lock, and each vendored spec fixture) + one rev across the Cargo pins | `cloister-9170d0` |
+| `lint:upstream-pins` | ONE ley-line-open version across every hand-stated channel (input ref, Cargo deps, generator lock, and each vendored spec fixture) + one full-commit rev across the Cargo pins, which every Cargo.lock records | `cloister-9170d0` |
 | `cluster:emit:check-drift` | `cluster.compose.yaml` matches the emitter — it is generated, committed, and `lint:tenant-docs` READS it | `cloister-cb735c` |
 | `lint:binding-parity` | a binding read in `src/` is declared on BOTH deployment paths (or carries a declared asymmetry) | `cloister-9aeb3f` |
 | `cluster:jsonschema:check-drift` + `cluster:toml:schema:check` | `schema/cluster.toml.schema.json` (the published cluster.toml schema) matches LLO schema-bridge's output for `cluster.capnp`, reshaped for TOML; the parser refuses any key it does not define | [`docs/reference/cluster-toml-schema.md`](docs/reference/cluster-toml-schema.md) |

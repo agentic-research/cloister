@@ -558,10 +558,14 @@ impl<B: LeylineBackendTrait + AwaitRun> Backend for LeylineExecutionBackend<B> {
             }
             *phase = StartPhase::Starting;
         }
-        if let Err(error) = self
-            .inner
-            .start(&request, leyline_runtime::ServedWorkspaces::none())
-        {
+        // No connections: this runner serves none. Connections reach a run
+        // through LLO's execution daemon (ADR-0079), never through Rust here
+        // (ADR-0084).
+        if let Err(error) = self.inner.start(
+            &request,
+            leyline_runtime::ServedWorkspaces::none(),
+            leyline_runtime::RunConnections::none(),
+        ) {
             self.set_phase(StartPhase::StartFailed);
             return Err(RuntimeError::Backend(error.to_string()));
         }

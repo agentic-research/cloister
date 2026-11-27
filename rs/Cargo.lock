@@ -1784,8 +1784,8 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "leyline-cas-ffi"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "leyline-core",
  "leyline-ffi-helpers",
@@ -1793,8 +1793,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-core"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1807,8 +1807,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-envelope"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1823,13 +1823,13 @@ dependencies = [
 
 [[package]]
 name = "leyline-ffi-helpers"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 
 [[package]]
 name = "leyline-public-schema"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "capnp",
  "capnp-json",
@@ -1839,8 +1839,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-runtime"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1870,8 +1870,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-schema-spec"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "blake3",
  "libc",
@@ -1880,8 +1880,8 @@ dependencies = [
 
 [[package]]
 name = "leyline-sign"
-version = "0.31.0"
-source = "git+https://github.com/agentic-research/ley-line-open?rev=eb07092a3650552e64cd73261704d5af352a4f88#eb07092a3650552e64cd73261704d5af352a4f88"
+version = "0.32.0"
+source = "git+https://github.com/agentic-research/ley-line-open?rev=c5a14f6039c1071912d8d21a9f311b90cd004761#c5a14f6039c1071912d8d21a9f311b90cd004761"
 dependencies = [
  "anyhow",
  "axum",

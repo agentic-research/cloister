@@ -56,7 +56,7 @@ import { fileURLToPath } from "node:url";
 
 import TOML from "smol-toml";
 
-import { upstreamChannels, collectLloPins } from "../lint/upstream-pins.mjs";
+import { upstreamChannels, collectLloPins, lloWorkspaces } from "../lint/upstream-pins.mjs";
 import { LLO_SPECS, vendorLloSpecs } from "./vendor-llo-spec.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -239,6 +239,30 @@ function writeCargo(pins, commit, version, dry) {
   return touched;
 }
 
+/**
+ * Re-resolve each workspace's lockfile against the manifests just written.
+ * `cargo metadata` resolves without building, and moves only the entries the
+ * manifests no longer match, the ley-line-open packages. A lock left behind
+ * still builds, because cargo re-resolves it, so nothing failed until
+ * `cargo build --locked`. Run in the workspace, so its rust-toolchain.toml
+ * chooses the toolchain.
+ */
+function writeLocks(workspaces, dry) {
+  for (const ws of workspaces) {
+    if (dry) continue;
+    const dir = resolve(ROOT, ws.dir);
+    try {
+      execFileSync("cargo", ["metadata", "--format-version", "1", "--manifest-path", join(dir, "Cargo.toml")], {
+        cwd: dir,
+        stdio: ["ignore", "ignore", "inherit"],
+      });
+    } catch (error) {
+      die(`could not re-resolve ${ws.lock}: ${error.message}`);
+    }
+  }
+  return workspaces.map((ws) => ws.lock);
+}
+
 /** cluster.toml `[inputs.llo]`: the ref's sha and the version, in-table only. */
 function writeInput(commit, version, dry) {
   const abs = resolve(ROOT, "cluster.toml");
@@ -352,6 +376,7 @@ function main(argv) {
 
   const digests = generatorDigests(release.assets, families);
   const n = writeCargo(pins, commit, version, dry);
+  const locks = writeLocks(lloWorkspaces(pins), dry);
   writeInput(commit, version, dry);
   writeGeneratorLock(tag, digests, dry, wasmDigests(release.assets, wasmNames));
   // Needs only the checkout, so it is never skipped. It refuses unless the
@@ -361,6 +386,7 @@ function main(argv) {
   process.stdout.write(
     `${dry ? "  DRY RUN — nothing written\n" : ""}` +
     `  cargo: ${n} manifest(s) @ ${commit.slice(0, 8)} / ${version}\n` +
+    `  locks: ${dry ? "would re-resolve" : "re-resolved"} ${locks.join(", ")}\n` +
     `  input: cluster.toml @ ${commit.slice(0, 8)} / ${version}\n` +
     `  generator: schema-bridge.lock.json @ ${tag}, ${families.length} famil(ies) + ${wasmNames.length} wasm module(s) re-digested\n` +
     `  spec fixtures: ${LLO_SPECS.length} spec(s) + leyline-net/v1 vectors, ${vendored.written.length ? `re-vendored ${vendored.written.length} file(s)` : "unchanged"}\n`,

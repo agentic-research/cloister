@@ -8,6 +8,35 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — ley-line-open 0.32.0
+
+- Every LLO channel moves to v0.32.0 (`c5a14f60`) in one step (`task llo:bump`):
+  - the Cargo pins and both lockfiles;
+  - the input in `cluster.toml` and `cluster.lock.toml`;
+  - the generator and wasm digests in `schema-bridge.lock.json`;
+  - the vendored spec files.
+- Only `execution/v1`'s README changed in LLO's spec tree, where it describes
+  a daemon started with a connection broker. The IDL and every vendored file
+  are byte-identical to 0.31.0's, apart from their source line. The three
+  hand-written notes of the `confinement/v1` version move to 0.32.0.
+- The host runtime builds against `leyline-runtime` 0.32.0, whose
+  `Backend::start` takes the run's connections. It passes none, because
+  connections reach a run through LLO's execution daemon (ADR-0079), not
+  through cloister's Rust (ADR-0084). Its two test backends take the new
+  argument, and their `RunOutcome`s carry no connections.
+- **A lockfile is held to its manifest.** The bump moved
+  `tools/harness-sandbox/Cargo.toml` and left its `Cargo.lock` at 0.31.0. It
+  still built, because cargo re-resolves a stale lock, so every gate passed
+  and only `cargo build --locked` would have refused it. `lint:upstream-pins`
+  now checks that each workspace's lock names every crate its manifests pin,
+  at the pinned commit, and that the pin is a full commit. `task llo:bump`
+  re-resolves each of those locks with `cargo metadata`.
+- Not used yet: 0.32.0's connection broker (`leyline-conn-broker-darwin-arm64`,
+  served by `leyline execution-daemon --connection-broker`). A run carries
+  connections once cloister emits the `connections/v1` document
+  (`cloister-55424e`, ADR-0069) and can build a grant without Rust
+  (ley-line-open#606).
+
 ### 2026-11 — `cloister inspect` reads v1 Cloud Run services, and every URL a v2 one answers on
 
 - `google_cloud_run_service` (the v1 resource, shaped like a Knative Service)
