@@ -46,6 +46,7 @@
     },
     "google_cloud_run_service_iam_member": {
       "read": ["role", "member", "service", "location"],
+      "present": ["condition"],
       "ids": ["project"],
       "referenceAttrs": ["service"],
       "relations": [{
@@ -53,13 +54,31 @@
         "scope": ["project", "location"], "stripPrefix": "v1/"
       }],
       "access": {
-        "role": "role", "principal": "member",
+        "role": "role", "principal": "member", "condition": "condition",
         "roles": { "roles/run.invoker": "invoker" },
         "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
       }
     },
-    "google_cloud_run_v2_service_iam_member": {
-      "read": ["role", "member", "name", "location"],
+    "google_cloud_run_service_iam_binding": {
+      "read": ["role", "service", "location"],
+      "strings": ["members"],
+      "present": ["condition"],
+      "ids": ["project"],
+      "referenceAttrs": ["service"],
+      "relations": [{
+        "attr": "service", "toType": "google_cloud_run_v2_service", "toAttr": ["id", "name"],
+        "scope": ["project", "location"], "stripPrefix": "v1/"
+      }],
+      "access": {
+        "role": "role", "principals": "members", "condition": "condition",
+        "roles": { "roles/run.invoker": "invoker" },
+        "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
+    },
+    "google_cloud_run_v2_service_iam_binding": {
+      "read": ["role", "name", "location"],
+      "strings": ["members"],
+      "present": ["condition"],
       "ids": ["project"],
       "referenceAttrs": ["name"],
       "relations": [{
@@ -67,7 +86,22 @@
         "scope": ["project", "location"]
       }],
       "access": {
-        "role": "role", "principal": "member",
+        "role": "role", "principals": "members", "condition": "condition",
+        "roles": { "roles/run.invoker": "invoker" },
+        "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
+    },
+    "google_cloud_run_v2_service_iam_member": {
+      "read": ["role", "member", "name", "location"],
+      "present": ["condition"],
+      "ids": ["project"],
+      "referenceAttrs": ["name"],
+      "relations": [{
+        "attr": "name", "toType": "google_cloud_run_v2_service", "toAttr": ["id", "name"],
+        "scope": ["project", "location"]
+      }],
+      "access": {
+        "role": "role", "principal": "member", "condition": "condition",
         "roles": { "roles/run.invoker": "invoker" },
         "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
       }
@@ -105,6 +139,7 @@
     },
     "google_cloud_run_v2_job_iam_member": {
       "read": ["role", "member", "name", "location"],
+      "present": ["condition"],
       "ids": ["project"],
       "referenceAttrs": ["name"],
       "relations": [{
@@ -112,7 +147,23 @@
         "scope": ["project", "location"]
       }],
       "access": {
-        "role": "role", "principal": "member",
+        "role": "role", "principal": "member", "condition": "condition",
+        "roles": { "roles/run.invoker": "invoker" },
+        "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
+      }
+    },
+    "google_cloud_run_v2_job_iam_binding": {
+      "read": ["role", "name", "location"],
+      "strings": ["members"],
+      "present": ["condition"],
+      "ids": ["project"],
+      "referenceAttrs": ["name"],
+      "relations": [{
+        "attr": "name", "toType": "google_cloud_run_v2_job", "toAttr": ["id", "name"],
+        "scope": ["project", "location"]
+      }],
+      "access": {
+        "role": "role", "principals": "members", "condition": "condition",
         "roles": { "roles/run.invoker": "invoker" },
         "publicPrincipals": ["allUsers", "allAuthenticatedUsers"]
       }

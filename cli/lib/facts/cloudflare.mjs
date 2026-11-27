@@ -294,6 +294,21 @@ export function importResource(resource, entry, references, expressions) {
     const value = pickPath(values, sensitive, path);
     if (value !== undefined) attrs[path] = value;
   }
+  // A top-level list of strings, read whole or not at all: any marker on it
+  // other than "nothing here is sensitive" withholds it.
+  for (const path of entry.strings ?? []) {
+    const list = getPath(values, path);
+    if (!Array.isArray(list)) continue;
+    if (isMarkedSensitive(markerAt(sensitive, path))) { attrs[`${path}Withheld`] = true; continue; }
+    attrs[path] = list.filter((item) => typeof item === "string");
+  }
+  // Whether a block is there. A marker that withholds it does not say it is
+  // not, so it counts as there: fail closed.
+  for (const path of entry.present ?? []) {
+    const block = getPath(values, path);
+    const there = Array.isArray(block) ? block.length > 0 : block !== undefined && block !== null;
+    (attrs.present ??= {})[path] = there || isMarkedSensitive(markerAt(sensitive, path));
+  }
   attrs.ids = {};
   for (const path of entry.ids ?? []) {
     const value = pickPath(values, sensitive, path);

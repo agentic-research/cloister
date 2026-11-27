@@ -133,6 +133,18 @@ export function validateMapping(mapping, spec, objectSpecs = []) {
         }
       }
     }
+    // `strings`: an attribute that is a list of strings (an IAM binding's
+    // members), read whole or not at all, as a list row's `strings` is.
+    for (const path of entry.strings ?? []) {
+      const leaf = lookup(attributes, path, here);
+      const [collection, element] = Array.isArray(leaf.type) ? leaf.type : [];
+      if (!["list", "set"].includes(collection) || element !== "string") throw new Error(`mapping: "${here}${path}" is not a list of strings`);
+    }
+    // `present`: a block whose being there is what is read (an IAM grant's
+    // condition). Its fields need not be known for it to count.
+    for (const path of entry.present ?? []) {
+      if (!lookup(attributes, path, here).attributes) throw new Error(`mapping: "${here}${path}" is not a block, so its presence is not what can be read`);
+    }
     // A map read whole: it must be a map of strings the provider does not
     // mark sensitive. Nothing else can be read as a set of pairs.
     for (const path of entry.maps ?? []) {
@@ -181,10 +193,10 @@ function checkScope(rel, attributes, targetAttributes, from) {
 const isTable = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
 /** Every key a mapping entry may have, once `like` is resolved. */
-const ENTRY_KEYS = ["name", "read", "ids", "referenceAttrs", "maps", "lists", "configLists", "relations", "report", "access"];
+const ENTRY_KEYS = ["name", "read", "ids", "strings", "present", "referenceAttrs", "maps", "lists", "configLists", "relations", "report", "access"];
 
 /** Keys a fact's attrs already hold, which a list read under its own name would overwrite. */
-const RESERVED_ATTRS = new Set(["ids", "maps", "references", "referenceSites", "configured", "takenFrom"]);
+const RESERVED_ATTRS = new Set(["ids", "maps", "present", "references", "referenceSites", "configured", "takenFrom"]);
 
 /**
  * A list is kept in a fact's attrs under the last segment of its path, with
@@ -483,9 +495,19 @@ function checkReport(type, entry, types = {}, attributes = {}) {
     if (!isTable(access) || !isTable(access.roles) || Object.keys(access.roles).length === 0) {
       throw new Error(`mapping: ${type}.access needs "role", "principal" and a non-empty "roles" table`);
     }
-    onlyKeys(access, ["role", "principal", "roles", "publicPrincipals"], `${type}.access`);
-    for (const key of ["role", "principal"]) {
-      if (!read.includes(access[key])) throw new Error(`mapping: ${type}.access ${key} "${access[key]}" is not in its "read" list`);
+    onlyKeys(access, ["role", "principal", "principals", "condition", "roles", "publicPrincipals"], `${type}.access`);
+    if (!read.includes(access.role)) throw new Error(`mapping: ${type}.access role "${access.role}" is not in its "read" list`);
+    // One principal per row (a member), or a list of them (a binding's members).
+    if ((access.principal === undefined) === (access.principals === undefined)) {
+      throw new Error(`mapping: ${type}.access needs exactly one of "principal" (in its "read" list) or "principals" (in its "strings" list)`);
+    }
+    if (access.principal !== undefined && !read.includes(access.principal)) throw new Error(`mapping: ${type}.access principal "${access.principal}" is not in its "read" list`);
+    if (access.principals !== undefined && !(entry.strings ?? []).includes(access.principals)) {
+      throw new Error(`mapping: ${type}.access principals "${access.principals}" is not in its "strings" list`);
+    }
+    // `condition`: a block that, when there, makes the grant conditional.
+    if (access.condition !== undefined && !(entry.present ?? []).includes(access.condition)) {
+      throw new Error(`mapping: ${type}.access condition "${access.condition}" is not in its "present" list`);
     }
     for (const [role, label] of Object.entries(access.roles)) {
       if (!isText(label)) throw new Error(`mapping: ${type}.access role "${role}" needs a label`);

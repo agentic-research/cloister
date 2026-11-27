@@ -26,7 +26,7 @@ import { objectKind } from "./mapping.mjs";
  * holds the object, not inside it, so it is left out there.
  */
 export function mappedPaths(entry, { held = false } = {}) {
-  const paths = [entry.name, ...(entry.read ?? []), ...(entry.ids ?? []), ...(held ? [] : entry.referenceAttrs ?? [])];
+  const paths = [entry.name, ...(entry.read ?? []), ...(entry.ids ?? []), ...(entry.strings ?? []), ...(entry.present ?? []), ...(held ? [] : entry.referenceAttrs ?? [])];
   for (const list of entry.lists ?? []) {
     paths.push(list.path);
     // A row's field may be a path through nested objects (`valueFrom.secretKeyRef.name`).

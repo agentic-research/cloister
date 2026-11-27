@@ -390,13 +390,21 @@ function declaredSections(facts, kind, { withRun = false, registry = SHIPPED } =
         const rule = accessEntry.access;
         for (const row of readBy(accessEntry)) {
           const role = row.attrs[rule.role];
-          const principal = row.attrs[rule.principal];
+          // A member row names one principal; a binding names a list of them.
+          const principals = rule.principals !== undefined ? row.attrs[rule.principals] ?? [] : [row.attrs[rule.principal]];
           // Own property only: the role comes from the document.
-          if (typeof role !== "string" || !Object.hasOwn(rule.roles, role) || !principal) continue;
+          if (typeof role !== "string" || !Object.hasOwn(rule.roles, role)) continue;
           if (!resolveRelations(row, facts, kind).some((r) => r.to?.address === fact.address)) continue;
           const label = rule.roles[role];
-          if (access.some((a) => a.label === label && a.principal === principal)) continue;
-          access.push({ label, principal, public: (rule.publicPrincipals ?? []).includes(principal) });
+          // A grant made under a condition holds only when the condition does,
+          // and cloister does not evaluate one. It is never evidence that the
+          // grant holds, and it is said to be conditional.
+          const conditional = rule.condition !== undefined && row.attrs.present?.[rule.condition] === true;
+          for (const principal of principals) {
+            if (typeof principal !== "string" || principal === "") continue;
+            if (access.some((a) => a.label === label && a.principal === principal && (a.conditional === true) === conditional)) continue;
+            access.push({ label, principal, public: (rule.publicPrincipals ?? []).includes(principal), ...(conditional ? { conditional: true } : {}) });
+          }
         }
       }
       // A setting that turns the check off grants the label to anyone the
@@ -561,10 +569,13 @@ function compareConnections(sections, cluster, env) {
         const access = { from: connection.from, to: connection.to, name: connection.name, env: connection.env, label };
         const sources = named(connection.from);
         const identity = sources.length === 1 ? sources[0].identity : "";
+        const granted = (a) => `${a.principal}${a.conditional ? " (under a condition)" : ""}`;
         if (open.length) {
-          findings.push({ kind: "contradicted", access, reason: `${label} is granted to ${open.map((a) => a.principal).join(", ")}, so it is not only "${connection.from}" that may call it` });
-        } else if (identity !== "" && rows.some((a) => a.principal === identity)) {
+          findings.push({ kind: "contradicted", access, reason: `${label} is granted to ${open.map(granted).join(", ")}, so it is not only "${connection.from}" that may call it` });
+        } else if (identity !== "" && rows.some((a) => a.principal === identity && !a.conditional)) {
           findings.push({ kind: "evidenced", access, principal: identity });
+        } else if (identity !== "" && rows.some((a) => a.principal === identity)) {
+          findings.push({ kind: "unknown", access, reason: `${label} is granted to ${identity} only under a condition, which cloister does not evaluate` });
         } else if (identity === "") {
           findings.push({ kind: "unknown", access, reason: `these inputs do not state who "${connection.from}" runs as` });
         } else {
@@ -842,7 +853,7 @@ export function renderReport(report) {
     section(`${declared.title}:`);
     for (const r of declared.resources) {
       lines.push(`  ${[r.name, ...Object.values(r.attrs)].filter((v) => v !== "").join("  ")}`);
-      for (const a of r.access) lines.push(`    ${a.label}: ${a.principal}${a.public ? "  (public)" : ""}`);
+      for (const a of r.access) lines.push(`    ${a.label}: ${a.principal}${a.conditional ? "  (under a condition)" : ""}${a.public ? "  (public)" : ""}`);
       for (const key of r.withheld) lines.push(`    ${key}: withheld (the document marks it sensitive, so it was not read)`);
       for (const d of r.dials) lines.push(`    dials: ${d.to}  (${[d.section, dialHow(d)].filter(Boolean).join("; ")})`);
       for (const label of r.accessLabels) {

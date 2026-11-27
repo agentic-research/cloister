@@ -171,6 +171,27 @@ strength is what stops an undeclared caller, and a plan cannot show that.
 The edge stays `none` in `cluster graph`, with this as the reason a reader
 can check for themselves.
 
+**Amendment (2026-11-26): a grant is read with its condition, and a binding
+grants each member.** A provider's grant may be made under a condition: an
+IAM condition holds only while its expression is true, a deadline for
+instance. Member rows were read without it, so a grant that holds until next
+week was evidence that the caller may call the target. Now:
+
+- **A grant made under a condition is not evidence that it holds.** Cloister
+  does not evaluate a condition, so a connection whose caller is granted only
+  under one is unknown, and says so. A public grant under a condition still
+  opens the target, and is reported as contradicting, with its condition
+  named. A condition whose fields the document withholds is still a
+  condition.
+- **A binding grants its role to each of its members**, as a member row does
+  to its one. Its members are read whole or not at all.
+- **The report shows a grant's condition**, and `inspect --json` carries it
+  (`AccessRow.conditional`, InspectReport 1.2).
+
+A mapping says where a grant's condition is (`access.condition`, a block the
+entry reads the presence of) and where a binding's members are
+(`access.principals`).
+
 ### 5. Checking comes before drafting, and drafting before lowering
 
 In order, each useful without the next:
@@ -507,6 +528,7 @@ A microVM is still given no secret (above), whatever the secret holds.
 | Edges from addresses and from configuration references | built for Cloud Run |
 | `ingress` beside a port's `expose` | built (`inspect --terraform --dir`) |
 | Access rows (invoker) | compared with declared connections: `evidenced` when the row names the caller's own service account, `contradicted` when the row is public, `undeclared` when a workload is granted with no connection, otherwise `unknown`. Never raises an edge's strength |
+| Access from member and binding rows, each read with its condition (amendment of 2026-11-26) | built: a conditional grant is `unknown`, never `evidenced` |
 | Addresses in Kubernetes and Knative manifests, held to declared connections | built (`cluster k8s`) |
 | §5.1 Check a hand-written `cluster.toml` against the derived graph | built (`inspect --terraform --dir`) |
 | §5.2 Draft a `cluster.toml` | built (`inspect --terraform --draft --env`) |

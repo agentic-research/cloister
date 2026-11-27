@@ -214,9 +214,10 @@ struct Attribute {
 }
 
 struct AccessRow {
-  label     @0 :Text;
-  principal @1 :Text;
-  public    @2 :Bool $Traits.doc("True when the row admits anyone.");
+  label       @0 :Text;
+  principal   @1 :Text;
+  public      @2 :Bool $Traits.doc("True when the row admits anyone.");
+  conditional @3 :Bool $Traits.doc("True when the grant is made under a condition, which cloister does not evaluate: it holds only when the condition does.");
 }
 
 struct ReportResource $Traits.doc("A resource in a report section.") {

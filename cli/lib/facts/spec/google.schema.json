@@ -1,8 +1,79 @@
 {
   "provider": "hashicorp/google",
   "resources": {
+    "google_cloud_run_service_iam_binding": {
+      "attributes": {
+        "condition": {
+          "attributes": {
+            "description": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "expression": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "members": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "role": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "service": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
     "google_cloud_run_service_iam_member": {
       "attributes": {
+        "condition": {
+          "attributes": {
+            "description": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "expression": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
         "etag": {
           "sensitive": false,
           "type": "string"
@@ -349,8 +420,79 @@
         }
       }
     },
+    "google_cloud_run_v2_job_iam_binding": {
+      "attributes": {
+        "condition": {
+          "attributes": {
+            "description": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "expression": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "members": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "role": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
     "google_cloud_run_v2_job_iam_member": {
       "attributes": {
+        "condition": {
+          "attributes": {
+            "description": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "expression": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
         "etag": {
           "sensitive": false,
           "type": "string"
@@ -744,8 +886,79 @@
         }
       }
     },
+    "google_cloud_run_v2_service_iam_binding": {
+      "attributes": {
+        "condition": {
+          "attributes": {
+            "description": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "expression": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
+        "etag": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "id": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "location": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "members": {
+          "sensitive": false,
+          "type": [
+            "set",
+            "string"
+          ]
+        },
+        "name": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "project": {
+          "sensitive": false,
+          "type": "string"
+        },
+        "role": {
+          "sensitive": false,
+          "type": "string"
+        }
+      }
+    },
     "google_cloud_run_v2_service_iam_member": {
       "attributes": {
+        "condition": {
+          "attributes": {
+            "description": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "expression": {
+              "sensitive": false,
+              "type": "string"
+            },
+            "title": {
+              "sensitive": false,
+              "type": "string"
+            }
+          },
+          "nesting_mode": "list",
+          "sensitive": false
+        },
         "etag": {
           "sensitive": false,
           "type": "string"

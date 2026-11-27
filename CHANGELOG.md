@@ -8,6 +8,22 @@ so we batch changes by month rather than ratcheting semver per release.
 
 Tracking via the bead store (`rsry_list_beads --repo cloister --status open`).
 
+### 2026-11 — a grant is read with its condition, and a binding grants each member (ADR-0074 amendment)
+
+- An IAM member row made under a condition was read as an unconditional grant,
+  so a caller granted until a deadline was `evidenced`. A conditional grant is
+  now `unknown` for its principal, and a conditional public grant still
+  contradicts, with its condition named. A condition whose fields are withheld
+  still counts.
+- `google_cloud_run_service_iam_binding`, `google_cloud_run_v2_service_iam_binding`
+  and `google_cloud_run_v2_job_iam_binding` are read: a binding grants its role
+  to each member.
+- The text report marks a conditional grant. `inspect --json` is InspectReport
+  1.2, adding `AccessRow.conditional`.
+- A mapping entry may read a list of strings (`strings`) and whether a block
+  is there (`present`). An access rule names `principals` (a list) or
+  `principal`, and its `condition`.
+
 ### 2026-11 — a bundle is one container; Cloud Run's own settings read as they say (ADR-0074, ADR-0073 amendments)
 
 - A draft read a bundle's image from a workload's first container and its

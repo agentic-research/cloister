@@ -257,9 +257,10 @@
       "properties": {
         "label": { "type": "string" },
         "principal": { "type": "string" },
-        "public": { "type": "boolean", "description": "True when the row admits anyone." }
+        "public": { "type": "boolean", "description": "True when the row admits anyone." },
+        "conditional": { "type": "boolean", "description": "True when the grant is made under a condition, which cloister does not evaluate: it holds only when the condition does." }
       },
-      "required": ["label", "principal", "public"],
+      "required": ["label", "principal", "public", "conditional"],
       "additionalProperties": false
     },
     "ReportResource": {

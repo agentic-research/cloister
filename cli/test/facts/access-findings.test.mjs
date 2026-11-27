@@ -144,3 +144,86 @@ test("a setting that turns an access check off is a bool the entry reads, for a 
   assert.throws(edited((e) => { e.read = e.read.filter((r) => r !== "invoker_iam_disabled"); }), /unchecked needs an "attr" that is a bool/);
   assert.throws(edited((e) => { e.report.unchecked.label = "admin"; }), /unchecked label "admin" is not one an access type gives google_cloud_run_v2_service/);
 });
+
+// ── Grants made under a condition, and grants to a list of members ───────────
+
+const member = (doc) => resourcesOf(doc).find((r) => r.type === "google_cloud_run_v2_service_iam_member");
+const CONDITION = [{ title: "until the migration", expression: "request.time < timestamp(\"2026-12-01T00:00:00Z\")" }];
+
+test("a grant made under a condition is not evidence that it holds, and says so", async () => {
+  const doc = plan();
+  member(doc).values.condition = structuredClone(CONDITION);
+  const granted = accessFindings(doc, await drafted()).find((f) => f.access.from === "workqueue");
+  assert.equal(granted.kind, "unknown");
+  assert.match(granted.reason, /invoker is granted to serviceAccount:workqueue@example-project\.iam\.gserviceaccount\.com only under a condition, which cloister does not evaluate/);
+  // The report shows the row, and that it is conditional.
+  const text = renderReport(buildReport(importFacts(doc), await drafted(), { env: "prod" }));
+  assert.match(text, /invoker: serviceAccount:workqueue@example-project\.iam\.gserviceaccount\.com {2}\(under a condition\)/);
+  // A condition whose fields the document withholds is still a condition.
+  const hidden = plan();
+  member(hidden).values.condition = [{}];
+  member(hidden).sensitive_values = { condition: [{ expression: true, title: true }] };
+  assert.equal(accessFindings(hidden, await drafted()).find((f) => f.access.from === "workqueue").kind, "unknown");
+  // No condition block, or an empty one, is no condition.
+  const plain = plan();
+  member(plain).values.condition = [];
+  assert.equal(accessFindings(plain, await drafted()).find((f) => f.access.from === "workqueue").kind, "evidenced");
+});
+
+test("a public grant under a condition still opens the target, and says it is conditional", async () => {
+  const doc = plan();
+  Object.assign(member(doc).values, { member: "allUsers", condition: structuredClone(CONDITION) });
+  const findings = accessFindings(doc, await drafted());
+  assert.deepEqual(findings.filter((f) => f.access.to === "reconciler").map((f) => f.kind), ["contradicted", "contradicted"]);
+  assert.match(findings[0].reason, /invoker is granted to allUsers \(under a condition\), so it is not only "workqueue" that may call it/);
+});
+
+test("a binding grants its role to each of its members", async () => {
+  const asBinding = (members, extra = {}) => {
+    const doc = plan();
+    const row = member(doc);
+    row.type = "google_cloud_run_v2_service_iam_binding";
+    row.address = "google_cloud_run_v2_service_iam_binding.reconciler_invokers";
+    delete row.values.member;
+    Object.assign(row.values, { members, ...extra });
+    const configured = doc.configuration.root_module.resources.find((r) => r.type === "google_cloud_run_v2_service_iam_member");
+    Object.assign(configured, { type: row.type, address: row.address });
+    return doc;
+  };
+  const both = asBinding([WORKQUEUE, "serviceAccount:sweep@example-project.iam.gserviceaccount.com"]);
+  assert.deepEqual(accessFindings(both, await drafted()).filter((f) => f.access.to === "reconciler").map((f) => [f.access.from, f.kind]), [["workqueue", "evidenced"], ["sweep", "evidenced"]]);
+  const open = asBinding([WORKQUEUE, "allAuthenticatedUsers"]);
+  assert.deepEqual(accessFindings(open, await drafted()).filter((f) => f.access.to === "reconciler").map((f) => f.kind), ["contradicted", "contradicted"]);
+  const conditional = asBinding([WORKQUEUE], { condition: structuredClone(CONDITION) });
+  assert.equal(accessFindings(conditional, await drafted()).find((f) => f.access.from === "workqueue").kind, "unknown");
+  // A members list the document withholds grants nothing that can be read.
+  const hidden = asBinding([WORKQUEUE]);
+  resourcesOf(hidden).find((r) => r.type === "google_cloud_run_v2_service_iam_binding").sensitive_values = { members: [true] };
+  assert.equal(accessFindings(hidden, await drafted()).find((f) => f.access.from === "workqueue").kind, "unknown");
+});
+
+test("the JSON report says which grants are conditional", async () => {
+  const { declaredReport } = await import("../../lib/facts/report-json.mjs");
+  const doc = plan();
+  member(doc).values.condition = structuredClone(CONDITION);
+  const json = declaredReport(buildReport(importFacts(doc), await drafted(), { env: "prod" }));
+  const rows = json.sections.flatMap((s) => s.resources).flatMap((r) => r.access);
+  assert.deepEqual(rows.find((a) => a.principal === WORKQUEUE), { label: "invoker", principal: WORKQUEUE, public: false, conditional: true });
+});
+
+test("an access rule names one principal or a list of them, and its condition is a block it reads", () => {
+  const edited = (type, edit) => {
+    const mapping = structuredClone(GOOGLE_MAPPING);
+    edit(mapping.types[type]);
+    return () => validateMapping(mapping, GOOGLE_SPEC);
+  };
+  const MEMBER = "google_cloud_run_v2_service_iam_member";
+  const BINDING = "google_cloud_run_v2_service_iam_binding";
+  assert.doesNotThrow(edited(MEMBER, () => {}));
+  assert.doesNotThrow(edited(BINDING, () => {}));
+  assert.throws(edited(MEMBER, (e) => { e.access.principals = "members"; }), /needs exactly one of "principal" .* or "principals"/);
+  assert.throws(edited(BINDING, (e) => { e.strings = []; }), /access principals "members" is not in its "strings" list/);
+  assert.throws(edited(MEMBER, (e) => { e.present = []; }), /access condition "condition" is not in its "present" list/);
+  assert.throws(edited(MEMBER, (e) => { e.present = ["role"]; }), /"google_cloud_run_v2_service_iam_member\.role" is not a block/);
+  assert.throws(edited(BINDING, (e) => { e.strings = ["role"]; e.access.principals = "role"; }), /"google_cloud_run_v2_service_iam_binding\.role" is not a list of strings/);
+});
